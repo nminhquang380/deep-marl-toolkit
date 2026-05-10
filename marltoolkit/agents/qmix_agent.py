@@ -183,11 +183,13 @@ class QMixAgent(BaseAgent):
         if target_update_tau:
             soft_target_update(self.actor_model, self.target_actor_model,
                                target_update_tau)
-            soft_target_update(self.mixer_model, self.target_mixer_model,
-                               target_update_tau)
+            if self.mixer_model is not None:
+                soft_target_update(self.mixer_model, self.target_mixer_model,
+                                   target_update_tau)
         else:
             hard_target_update(self.actor_model, self.target_actor_model)
-            hard_target_update(self.mixer_model, self.target_mixer_model)
+            if self.mixer_model is not None:
+                hard_target_update(self.mixer_model, self.target_mixer_model)
 
     def learn(self, episode_data: Dict[str, np.ndarray]):
         """Update the model from a batch of experiences.
@@ -337,13 +339,13 @@ class QMixAgent(BaseAgent):
         mixer_model_name: str = 'mixer_model.th',
         opt_name: str = 'optimizer.th',
     ):
-        if not os.path.exists(save_dir):
-            os.mkdir(save_dir)
+        os.makedirs(save_dir, exist_ok=True)
         actor_model_path = os.path.join(save_dir, actor_model_name)
         mixer_model_path = os.path.join(save_dir, mixer_model_name)
         optimizer_path = os.path.join(save_dir, opt_name)
         torch.save(self.actor_model.state_dict(), actor_model_path)
-        torch.save(self.mixer_model.state_dict(), mixer_model_path)
+        if self.mixer_model is not None:
+            torch.save(self.mixer_model.state_dict(), mixer_model_path)
         torch.save(self.optimizer.state_dict(), optimizer_path)
         print('save model successfully!')
 
@@ -357,7 +359,10 @@ class QMixAgent(BaseAgent):
         actor_model_path = os.path.join(save_dir, actor_model_name)
         mixer_model_path = os.path.join(save_dir, mixer_model_name)
         optimizer_path = os.path.join(save_dir, opt_name)
-        self.actor_model.load_state_dict(torch.load(actor_model_path))
-        self.mixer_model.load_state_dict(torch.load(mixer_model_path))
-        self.optimizer.load_state_dict(torch.load(optimizer_path))
+        self.actor_model.load_state_dict(
+            torch.load(actor_model_path, map_location=self.device))
+        if self.mixer_model is not None and os.path.exists(mixer_model_path):
+            self.mixer_model.load_state_dict(
+                torch.load(mixer_model_path, map_location=self.device))
+        self.optimizer.load_state_dict(torch.load(optimizer_path, map_location=self.device))
         print('restore model successfully!')

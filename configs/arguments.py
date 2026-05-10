@@ -616,5 +616,18 @@ def get_common_args() -> argparse.Namespace:
         default=None,
         help='by default None. set the path to pretrained model.',
     )
-    args = parser.parse_args()
+
+    # Multi-UAV environment reward / checkpoint flags
+    parser.add_argument('--phi', type=float, default=0.5,
+                        help='Navigation reward weight (0=rate-only, 1=nav-only).')
+    parser.add_argument('--rho_col', type=float, default=1.0,
+                        help='Collision penalty magnitude.')
+    parser.add_argument('--r_fail', type=float, default=5.0,
+                        help='Failure penalty when UAV does not arrive by T_max.')
+    parser.add_argument('--save_interval', type=int, default=200,
+                        help='Save model checkpoint every N training episodes.')
+    parser.add_argument('--num_eval_episodes', type=int, default=None,
+                        help='Override num_test_episodes for evaluation.')
+
+    args, _ = parser.parse_known_args()
     return args

@@ -57,7 +57,7 @@ class MAPPOAgent(BaseAgent):
         if self.use_popart:
             self.value_normalizer = self.critic_model.v_out
         elif self.use_valuenorm:
-            self.value_normalizer = ValueNorm(1).to(self.device)
+            self.value_normalizer = ValueNorm(1, device=self.device)
         else:
             self.value_normalizer = None
 

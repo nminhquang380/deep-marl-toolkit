@@ -20,6 +20,7 @@ class RNNActorModel(nn.Module):
         super(RNNActorModel, self).__init__()
         self.args = args
         self.rnn_hidden_dim = args.rnn_hidden_dim
+        self.actor_input_dim = args.obs_shape[0]
         self.fc1 = nn.Linear(self.actor_input_dim, args.fc_hidden_dim)
         self.rnn = nn.GRUCell(input_size=args.fc_hidden_dim,
                               hidden_size=args.rnn_hidden_dim)
