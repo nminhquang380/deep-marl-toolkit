@@ -144,3 +144,6 @@ multiagent-particle-envs/
 results/
 *.mp4
 *.json
+runs/
+results/
+__pycache__/
