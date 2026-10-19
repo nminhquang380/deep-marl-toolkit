@@ -264,9 +264,8 @@ class LAWNEnv:
         arrived_now = act & np.all(self.pos == self.dest, axis=-1)
         cost = act * (1.0 / self.Tmin + cfg.mu * g)                              # Eq. (19), third branch
         failing = act & ~arrived_now & (self.t[:, None] >= self.Hdl)
-        cost = cost + failing * cfg.rho_fail                                     # Eq. (19), second branch
-
         dist_new = np.linalg.norm(self.pos - self.dest, axis=-1)
+        cost = cost + failing * (cfg.rho_fail + cfg.w_fail_dist * dist_new)     # Eq. (19), second branch
         ups_old = -cfg.rho_nav * dist_old * (t_old[:, None] < self.Hdl)
         ups_new = -cfg.rho_nav * dist_new * (self.t[:, None] < self.Hdl)
         r_nav = act * (ups_new - ups_old)                                        # Eq. (24)

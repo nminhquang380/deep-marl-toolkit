@@ -51,6 +51,7 @@ class EnvConfig:
     # ---- Cost / reward (Eqs. (19), (24)) -----------------------------------
     mu: float = 2.0             # penalty weight (Prop. 2 suggests mu > eta)
     rho_fail: float = 10.0
+    w_fail_dist: float = 0.1    # graded failure cost rho_fail + w * ||q_i(H_i) - d_i|| (0 = v18 Eq. (19))
     rho_nav: float = 0.05
 
     # ---- Episode generation ------------------------------------------------

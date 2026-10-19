@@ -19,9 +19,9 @@ for N in 50 40 30 10; do for s in $SEEDS_AUX; do for a in gippo mappo; do
 # (1) main comparison, N = 20, M = 4
 for s in $SEEDS_MAIN; do for a in gippo ippo mappo; do
   echo "$PY --algo $a --seed $s --out $OUT/main" >> "$JOBS"; done; done
-# (3) second GBS configuration: M = 9 on a 3x3 grid, same total RB budget (9 x 10 ~ 4 x 22)
+# (3) second GBS configuration: M = 9 on a 3x3 grid, K_b = 12 matches the congestion level of M = 4 (greedy violation ~11%)
 for s in $SEEDS_AUX; do for a in gippo ippo mappo; do
-  echo "$PY --algo $a --seed $s --out $OUT/m9 --env M=9 K_b=10" >> "$JOBS"; done; done
+  echo "$PY --algo $a --seed $s --out $OUT/m9 --env M=9 K_b=12" >> "$JOBS"; done; done
 
 echo "$(wc -l < "$JOBS") jobs -> $OUT  (parallel $P)"
 nl -nln "$JOBS" | \

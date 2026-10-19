@@ -47,12 +47,12 @@ pin one free card, e.g. `CUDA_VISIBLE_DEVICES=2 ... --device cuda`.
 | Parameter | Value |
 |---|---|
 | Airspace | 32 × 32 × 3 voxels, Δs = 40 m (1.28 km × 1.28 km), altitudes 60/100/140 m |
-| GBSs | M = 4 on a 2 × 2 grid, height 25 m; second layout M = 9 (3 × 3), K_b = 10 |
+| GBSs | M = 4 on a 2 × 2 grid, height 25 m; second layout M = 9 (3 × 3), K_b = 12 (same congestion level) |
 | Radio | Δf = 180 kHz, effective per-RB power 0 dBm, β0 = −43.3 dB, α = 2.3, σ² = −112.4 dBm |
 | SNR levels | thresholds 24/16/11/6 dB → bearers 1/2/3/4 RBs at R_min = 1.4 Mbps |
 | RB budget | K_b = 22 (≈ 66 % mean load at N = 20); scaled with N for scalability |
 | Mobility | v_max = 1, d_safe = 1, d_comm = 4, η = 1.5, min. O-D distance 8 voxels |
-| Cost | μ = 2 (> η, Prop. 2), ρ_fail = 10, ρ_nav = 0.05 |
+| Cost | μ = 2 (> η, Prop. 2), ρ_fail = 10, graded failure w = 0.1 (see below), ρ_nav = 0.05 |
 | PPO | 32 episodes/iter, lr 3e-4, clip 0.2, λ = 0.95, 5 epochs × 4 minibatches, entropy 0.01 → 0.001 |
 
 Episodes are generated so that the initial and the final (all-arrived) configurations
@@ -66,3 +66,13 @@ individual game cost, Eq. (20)), `welfare` (Σ_i J_i), `viol` (share of active s
 R_i < R_min, Eq. (7)), `rate_ratio` (mean R_i / R_min), `jain_util` (Jain index of
 T_i^min / T_i, 0 on failure), `jain_load` (Jain index of cell loads D_b / K_b),
 `overload` (share of overloaded cell-slots).
+
+## Deviation from manuscript v18: graded failure cost
+
+With Eq. (19) as written (constant ρ_fail) and the deadline reset of Υ_i in Eq. (24), the
+shaping telescopes to a constant in failed episodes as well, so a failed episode carries
+no information about which moves made progress; even a single UAV without congestion does
+not learn to arrive. The code therefore charges a missed deadline
+ρ_fail + w ‖q_i(H_i) − d_i‖ (`w_fail_dist`, default 0.1; `w_fail_dist=0` reproduces v18).
+The term depends on q_i and t only, so Prop. 1 and the Nash-existence result are unchanged,
+and the shaping remains policy-invariant with respect to the graded cost.

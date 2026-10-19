@@ -14,7 +14,7 @@ $EV --runs "$OUT"/main/gippo_N20_M4_s* "$OUT"/main/ippo_N20_M4_s* --N 10 20 30 4
 $EV --runs "$OUT"/scal/* "$OUT"/main/mappo_N20_M4_s* --env K_b_scale_with_N=true --out "$R/scal_retrained.csv"
 $EV --heuristics greedy myopic --N 10 20 30 40 50 --env K_b_scale_with_N=true --out "$R/scal_heur.csv"
 # second GBS configuration
-$EV --runs "$OUT"/m9/* --heuristics greedy myopic --env M=9 K_b=10 --out "$R/m9.csv"
+$EV --runs "$OUT"/m9/* --heuristics greedy myopic --env M=9 K_b=12 --out "$R/m9.csv"
 # trajectories for the visualisation figure
 $EV --runs "$OUT"/main/gippo_N20_M4_s0 --episodes 64 --traj "$R/traj_gippo.npz"
 $EV --runs "$OUT"/main/mappo_N20_M4_s0 --episodes 64 --traj "$R/traj_mappo.npz"
