@@ -3,6 +3,8 @@
 # Usage: bash gtmarl/scripts/sweep.sh [OUT_DIR (default gtmarl/data/...)] [MAX_PARALLEL]
 #   ITERS (main, default 1500), ITERS_AUX (other experiments, default 1000)
 set -euo pipefail
+export CUDA_VISIBLE_DEVICES=""   # CPU only: never touch the shared GPUs
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
 OUT=${1:-$DATA/gtmarl_runs}
 P=${2:-24}

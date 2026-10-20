@@ -3,6 +3,8 @@
 # benchmarks, best-response gap and the go/no-go table.
 # Usage: bash gtmarl/scripts/pilot.sh [OUT_DIR (default gtmarl/data/...)] [ITERS]
 set -euo pipefail
+export CUDA_VISIBLE_DEVICES=""   # CPU only: never touch the shared GPUs
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
 OUT=${1:-$DATA/gtmarl_pilot}
 ITERS=${2:-1500}

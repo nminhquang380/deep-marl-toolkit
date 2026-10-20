@@ -2,6 +2,8 @@
 # Evaluation, best-response gap and trajectories after sweep.sh (v22, Sec. V).
 # Usage: bash gtmarl/scripts/post.sh [OUT_DIR (default gtmarl/data/...)] [MAX_PARALLEL]
 set -euo pipefail
+export CUDA_VISIBLE_DEVICES=""   # CPU only: never touch the shared GPUs
+export OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
 OUT=${1:-$DATA/gtmarl_runs}
 P=${2:-16}
