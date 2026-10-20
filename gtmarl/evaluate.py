@@ -27,7 +27,9 @@ import torch
 
 from .config import EnvConfig, TrainConfig, apply_overrides, from_dict
 from .env import LAWNEnv
-from .heuristics import run_heuristic
+import time
+
+from .heuristics import POLICIES, escape_deadlock, run_heuristic
 from .ppo import build_model, evaluate_model, rollout
 
 
@@ -47,8 +49,38 @@ def save_traj(env: LAWNEnv, path: str):
     traj = np.stack(env.traj)                      # (T+1, E, N, 3)
     np.savez_compressed(path, traj=traj[:, 0], dest=env.dest[0], orig=env.orig[0],
                         Tmin=env.Tmin[0], H=env.Hdl[0], T_arr=env.T_arr[0], arrived=env.arrived[0],
-                        gbs_vox=env.radio.gbs_vox, serve=env.radio.serve, level=env.radio.level,
-                        dims=env.dims, K=env.K)
+                        D=np.stack(env.D_hist)[:, 0], gbs_vox=env.radio.gbs_vox, serve=env.radio.serve,
+                        level=env.radio.level, dims=env.dims, K=env.K)
+
+
+def setting(ec: EnvConfig) -> Dict:
+    return {"L": ec.L, "mu": ec.mu, "penalty": ec.penalty, "w_nav": ec.w_nav,
+            "w_fail_dist": ec.w_fail_dist, "ablate": "+".join(ec.ablate)}
+
+
+def heuristic_traj(ec: EnvConfig, name: str, seed: int, path: str):
+    env = LAWNEnv(ec, n_envs=1, seed=seed)
+    rng = np.random.default_rng(seed)
+    o = env.reset()
+    stuck = np.zeros((1, env.N), np.int64)
+    while not env.done.all():
+        a = escape_deadlock(POLICIES[name](env, o["mask"], rng), o["mask"], stuck, 2, rng)
+        stuck = np.where((a == 0) & env.active, stuck + 1, 0)
+        o = env.step(a)
+    save_traj(env, path)
+
+
+@torch.no_grad()
+def inference_us_per_uav(env: LAWNEnv, model, reps: int = 50) -> float:
+    """Wall-clock time of one decentralised decision (encoder + actor) per UAV [us]."""
+    o = env.reset()
+    obs = torch.as_tensor(o["obs"][0])               # (N, obs_dim): one forward per UAV, batched
+    mask = torch.as_tensor(o["mask"][0])
+    model.dist(obs, mask).sample()
+    t = time.perf_counter()
+    for _ in range(reps):
+        model.dist(obs, mask).sample()
+    return 1e6 * (time.perf_counter() - t) / reps / env.N
 
 
 def main(argv=None):
@@ -62,7 +94,7 @@ def main(argv=None):
     p.add_argument("--n_envs", type=int, default=64)
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("--deterministic", action="store_true")
-    p.add_argument("--traj", default=None, help="save one episode of trajectories (first run)")
+    p.add_argument("--traj", default=None, help="save one episode of trajectories (first run / heuristic)")
     p.add_argument("--out", default=None)
     a = p.parse_args(argv)
     torch.set_num_threads(1)
@@ -88,8 +120,9 @@ def main(argv=None):
                 print("saved", a.traj)
                 a.traj = None
             m = evaluate_model(env, model, torch.device("cpu"), a.episodes, a.deterministic)
-            row = {"method": tc.algo, "seed": tc.seed, "N_train": ec0.N, "N": N, "M": ec.M,
-                   "K": env.K, "run": run, **m}
+            m["infer_us"] = inference_us_per_uav(LAWNEnv(ec, n_envs=1, seed=a.seed), model)
+            row = {"method": tc.algo, "tag": tc.tag, "seed": tc.seed, "N_train": ec0.N, "N": N,
+                   "M": ec.M, "K": env.K, **setting(ec), "run": run, **m}
             rows.append(row)
             print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items() if k != "run"},
                   flush=True)
@@ -98,9 +131,15 @@ def main(argv=None):
         for N in (a.N or [EnvConfig().N]):
             ec = apply_overrides(EnvConfig(), a.env)
             ec.N = N
+            if a.traj:
+                heuristic_traj(ec, h, a.seed, a.traj)
+                print("saved", a.traj)
+                a.traj = None
             env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
             m = run_heuristic(env, h, a.episodes, seed=a.seed)
-            row = {"method": h, "seed": 0, "N_train": 0, "N": N, "M": ec.M, "K": env.K, "run": "", **m}
+            m["infer_us"] = float("nan")
+            row = {"method": h, "tag": "", "seed": 0, "N_train": 0, "N": N, "M": ec.M, "K": env.K,
+                   **setting(ec), "run": "", **m}
             rows.append(row)
             print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items() if k != "run"},
                   flush=True)

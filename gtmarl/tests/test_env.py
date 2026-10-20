@@ -19,7 +19,7 @@ def _random_admissible(mask, rng):
 
 @pytest.fixture
 def env():
-    return LAWNEnv(EnvConfig(N=20, K_b=12, init_no_overload=False), n_envs=4, seed=1)  # congested
+    return LAWNEnv(EnvConfig(N=30, K_b=25, init_check="off"), n_envs=4, seed=1)  # congested
 
 
 def test_coverage():
@@ -94,11 +94,11 @@ def test_shaping_telescopes():
         o = e.step(_random_admissible(o["mask"], rng))
         tot_r += o["reward"]; tot_c += o["cost"]
     nav = tot_r + tot_c
-    assert np.allclose(nav, e.cfg.rho_nav * d0, atol=1e-4)
+    assert np.allclose(nav, e.cfg.w_nav * d0, atol=1e-4)
 
 
-def test_rician_runs():
-    e = LAWNEnv(EnvConfig(N=10, fading="rician"), n_envs=2, seed=4)
+def test_awgn_runs():
+    e = LAWNEnv(EnvConfig(N=10, fading="none"), n_envs=2, seed=4)
     rng = np.random.default_rng(4)
     o = e.reset()
     while not e.done.all():

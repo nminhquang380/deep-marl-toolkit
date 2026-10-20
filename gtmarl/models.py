@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from .env import GRAPH_DIM, OWN_DIM
+from .env import GRAPH_DIM, NBR_DIM, OWN_DIM
 
 
 def mlp(inp: int, hidden: int, out: int, n_hidden: int = 2, out_gain: float = 1.0) -> nn.Sequential:
@@ -55,20 +55,21 @@ class ValueNorm(nn.Module):
 
 
 class ActorCritic(nn.Module):
-    """Shared encoder f_omega, actor pi_theta and critic V_psi.
+    """Shared encoder f_omega, actor pi_theta and critic V_psi (Eqs. (29)-(31)).
 
-    use_graph=True  -> h_i = f_omega([nu_i, xi_bar_i, |M_i|])  (proposed, Eq. (29))
-    use_graph=False -> h_i = f_omega(nu_i)                      (ablation without the GNN)
-    central_critic  -> V(s) on the joint state (MAPPO baseline); the encoder is then
-                       trained by the actor loss only.
+    nbr = "graph" -> e_i = f_omega([nu_i, xi_bar_i, |M_i|])        (proposed)
+    nbr = "knn"   -> e_i = f_omega([nu_i, xi_(1)i, ..., xi_(k)i])  (IPPO-MLP benchmark)
+    nbr = "none"  -> e_i = f_omega(nu_i)                           (no neighbour information)
+    state_dim > 0 -> centralised critic V(s) on the joint state (CTDE-MAPPO); the encoder
+                     is then trained by the actor loss only.
     """
 
     def __init__(self, n_gbs: int, n_actions: int, hidden: int = 128, emb_dim: int = 64,
-                 use_graph: bool = True, state_dim: int = 0):
+                 nbr: str = "graph", knn_k: int = 4, state_dim: int = 0):
         super().__init__()
-        self.use_graph = use_graph
-        self.n_gbs = n_gbs
-        enc_in = OWN_DIM + (GRAPH_DIM if use_graph else 0)
+        self.nbr, self.knn_k, self.n_gbs = nbr, knn_k, n_gbs
+        self.use_graph = nbr == "graph"
+        enc_in = OWN_DIM + {"graph": GRAPH_DIM, "knn": NBR_DIM * knn_k, "none": 0}[nbr]
         self.encoder = nn.Sequential(mlp(enc_in, hidden, emb_dim, n_hidden=1), nn.Tanh())
         z_dim = emb_dim + n_gbs
         self.actor = mlp(z_dim, hidden, n_actions, out_gain=0.01)
@@ -81,9 +82,13 @@ class ActorCritic(nn.Module):
 
     def _z(self, obs: torch.Tensor) -> torch.Tensor:
         own = obs[..., :OWN_DIM]
-        graph = obs[..., OWN_DIM:OWN_DIM + GRAPH_DIM]
-        dem = obs[..., OWN_DIM + GRAPH_DIM:]
-        x = torch.cat([own, graph], -1) if self.use_graph else own
+        o = OWN_DIM
+        graph = obs[..., o:o + GRAPH_DIM]
+        o += GRAPH_DIM
+        knn = obs[..., o:o + NBR_DIM * self.knn_k]
+        dem = obs[..., -self.n_gbs:]
+        x = {"graph": lambda: torch.cat([own, graph], -1), "knn": lambda: torch.cat([own, knn], -1),
+             "none": lambda: own}[self.nbr]()
         return torch.cat([self.encoder(x), dem], -1)
 
     def dist(self, obs: torch.Tensor, mask: torch.Tensor):

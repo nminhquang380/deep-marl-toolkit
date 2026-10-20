@@ -28,7 +28,7 @@ def run_dir(tc: TrainConfig, ec: EnvConfig) -> str:
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--algo", default="gippo", choices=["gippo", "ippo", "mappo"])
+    p.add_argument("--algo", default="gippo", choices=["gippo", "ippo_mlp", "ippo", "mappo"])
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--iters", type=int, default=None)
     p.add_argument("--out", default=None)
@@ -73,15 +73,16 @@ def main(argv=None):
             ev = evaluate_model(eval_env, trainer.model, trainer.device, tc.eval_episodes)
             row.update({f"eval/{k}": v for k, v in ev.items()})
             print(f"[{tc.algo} N={ec.N} s={tc.seed}] it {it + 1}/{tc.iters} "
-                  f"succ {ev['success']:.3f} J {ev['J']:.3f} viol {ev['viol']:.4f} "
+                  f"succ {ev['success']:.3f} J {ev['J']:.3f} p_out {ev['p_out']:.4f} "
                   f"detour {ev['detour']:.3f} ({row['time_min']:.1f} min)", flush=True)
         if (it + 1) % tc.save_every == 0 or it == tc.iters - 1:
             torch.save(trainer.model.state_dict(), os.path.join(out, f"model_{it + 1}.pt"))
             torch.save(trainer.model.state_dict(), os.path.join(out, "model_last.pt"))
         if log_w is None:
             fields = sorted(set(row) | {f"eval/{k}" for k in
-                                        ("success", "detour", "J", "welfare", "viol", "rate_ratio",
-                                         "jain_util", "jain_load", "overload", "ep_len")})
+                                        ("success", "detour", "p_out", "jain_load", "social_cost", "J",
+                                         "viol", "rate_ratio", "potential", "overload", "jain_util",
+                                         "ep_len", "route_ok")})
             log_w = csv.DictWriter(log_f, fieldnames=fields, extrasaction="ignore")
             log_w.writeheader()
         log_w.writerow(row)

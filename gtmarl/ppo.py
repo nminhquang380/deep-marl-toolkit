@@ -22,11 +22,18 @@ from .env import LAWNEnv
 from .models import ActorCritic
 
 
+ALGOS = {  # algo -> (neighbour encoding, centralised critic, team reward)
+    "gippo": ("graph", False),      # proposed graph-aided IPPO
+    "ippo_mlp": ("knn", False),     # IPPO-MLP benchmark
+    "ippo": ("none", False),        # IPPO without neighbour information
+    "mappo": ("graph", True),       # CTDE-MAPPO benchmark (social cost, centralised critic)
+}
+
+
 def build_model(algo: str, env: LAWNEnv, tc: TrainConfig) -> ActorCritic:
-    return ActorCritic(
-        n_gbs=env.M, n_actions=env.A, hidden=tc.hidden, emb_dim=tc.emb_dim,
-        use_graph=(algo != "ippo"), state_dim=env.state_dim if algo == "mappo" else 0,
-    )
+    nbr, central = ALGOS[algo]
+    return ActorCritic(n_gbs=env.M, n_actions=env.A, hidden=tc.hidden, emb_dim=tc.emb_dim,
+                       nbr=nbr, knn_k=env.k, state_dim=env.state_dim if central else 0)
 
 
 def _t(x, device, dtype=torch.float32):

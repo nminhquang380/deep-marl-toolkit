@@ -59,7 +59,7 @@ def main(argv=None):
     ec, tc0, policy = load_run(a.run, a.ckpt)
     # deviator: individual critic (it optimises its own J_0), warm-started from the trained actor
     learner = ActorCritic(ec.M, policy.actor[-1].out_features, tc0.hidden, tc0.emb_dim,
-                          use_graph=policy.use_graph, state_dim=0)
+                          nbr=policy.nbr, knn_k=policy.knn_k, state_dim=0)
     learner.encoder.load_state_dict(policy.encoder.state_dict())
     learner.actor.load_state_dict(policy.actor.state_dict())
     if not policy.central:
@@ -74,7 +74,8 @@ def main(argv=None):
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
     tc.ent_coef = tc.ent_coef_final               # fine-tuning, little extra exploration
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
-    tr = PPOTrainer("ippo" if not policy.use_graph else "gippo", env, tc, model=learner,
+    algo = {"graph": "gippo", "knn": "ippo_mlp", "none": "ippo"}[policy.nbr]
+    tr = PPOTrainer(algo, env, tc, model=learner,
                     opponent=opponent, learner_agents=np.array([0]))
     curve = []
     for it in range(a.iters):

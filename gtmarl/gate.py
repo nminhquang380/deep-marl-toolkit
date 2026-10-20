@@ -21,9 +21,9 @@ def main(argv=None):
     rows = list(csv.DictReader(open(os.path.join(a.res, "main.csv"))))
     g = defaultdict(list)
     for r in rows:
-        key = r["method"] + ("_w0" if r["run"].endswith("_w0") else "")
+        key = r["method"] + (f"_{r['tag']}" if r.get("tag") else "")
         g[key].append({k: float(v) for k, v in r.items() if k in
-                       ("success", "detour", "J", "welfare", "viol", "jain_util", "jain_load")})
+                       ("success", "detour", "p_out", "jain_load", "social_cost", "J", "viol")})
     m = {k: {kk: float(np.mean([x[kk] for x in v])) for kk in v[0]} for k, v in g.items()}
 
     print(f"{'method':10s} " + " ".join(f"{k:>9s}" for k in next(iter(m.values()))))
@@ -37,11 +37,12 @@ def main(argv=None):
     print("\nrelative BR gap:", {k: f"{100 * v:.1f}%" for k, v in br.items()})
 
     P, MY, GR = m.get("gippo"), m.get("myopic"), m.get("greedy")
+    best = lambda k: min(MY[k], GR[k]) if MY and GR else float("nan")
     checks = [
-        ("C1 success >= greedy - 0.02", P and GR and P["success"] >= GR["success"] - 0.02),
-        ("C2 J < myopic J", P and MY and P["J"] < MY["J"]),
-        ("C3 viol <= myopic viol", P and MY and P["viol"] <= MY["viol"]),
-        ("C4 gippo J < ippo J (GNN helps)", P and "ippo" in m and P["J"] < m["ippo"]["J"]),
+        ("C1 MSR >= SP MSR - 0.02", P and GR and P["success"] >= GR["success"] - 0.02),
+        ("C2 J < min(J_SP, J_MBR)", P and MY and GR and P["J"] < best("J")),
+        ("C3 P_out <= min(P_out SP, MBR)", P and MY and GR and P["p_out"] <= best("p_out")),
+        ("C4 J < J of IPPO-MLP (graph helps)", P and "ippo_mlp" in m and P["J"] < m["ippo_mlp"]["J"]),
         ("C5 BR gap(gippo) < 5%", "gippo" in br and br["gippo"] < 0.05),
         ("C6 BR gap(mappo) > BR gap(gippo)", "gippo" in br and "mappo" in br and br["mappo"] > br["gippo"]),
         ("C7 graded cost (w=0.1) raises success over w=0", P and "gippo_w0" in m and P["success"] > m["gippo_w0"]["success"]),
