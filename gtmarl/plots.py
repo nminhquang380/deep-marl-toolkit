@@ -1,6 +1,6 @@
 """IEEE-style figures and LaTeX tables for Sec. V of manuscript v22.
 
-python -m gtmarl.plots --runs /data/$USER/gtmarl_runs            # -> <runs>/figs
+python -m gtmarl.plots --runs gtmarl/data/gtmarl_runs            # -> <runs>/figs
 
 Outputs (only those whose inputs exist):
   fig_convergence.pdf   V-B  return, stage potential, entropy, BR gap vs training

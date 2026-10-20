@@ -22,10 +22,10 @@ Self-contained; it does not import `marltoolkit` (the ICCC code stays untouched)
 ```bash
 cd ~/deep-marl-toolkit && git pull && git checkout gtmarl-twc
 python -m pytest -q gtmarl/tests
-bash gtmarl/scripts/pilot.sh /data/$USER/gtmarl_pilot          # ~2-2.5 h, prints GO / NO-GO
-bash gtmarl/scripts/sweep.sh /data/$USER/gtmarl_runs 24         # 117 runs, ~10-12 h on 24 cores
-bash gtmarl/scripts/post.sh  /data/$USER/gtmarl_runs 16         # evaluation + BR gap, ~3 h
-python -m gtmarl.plots --runs /data/$USER/gtmarl_runs           # figs/*.pdf, *.tex
+bash gtmarl/scripts/pilot.sh gtmarl/data/gtmarl_pilot          # ~2-2.5 h, prints GO / NO-GO
+bash gtmarl/scripts/sweep.sh gtmarl/data/gtmarl_runs 24         # 117 runs, ~10-12 h on 24 cores
+bash gtmarl/scripts/post.sh  gtmarl/data/gtmarl_runs 16         # evaluation + BR gap, ~3 h
+python -m gtmarl.plots --runs gtmarl/data/gtmarl_runs           # figs/*.pdf, *.tex
 ```
 Single runs: `python -m gtmarl.train --algo gippo --seed 0 --env N=40 L=2 mu=3.0 --out runs/dev`.
 CPU is the default and faster for these networks; one thread per process.

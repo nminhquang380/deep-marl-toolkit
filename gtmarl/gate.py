@@ -1,6 +1,6 @@
 """Go / no-go table after the pilot (Phase 0).
 
-python -m gtmarl.gate --res /data/$USER/gtmarl_pilot/results
+python -m gtmarl.gate --res gtmarl/data/gtmarl_pilot/results
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ def main(argv=None):
         ("C4 J < J of IPPO-MLP (graph helps)", P and "ippo_mlp" in m and P["J"] < m["ippo_mlp"]["J"]),
         ("C5 BR gap(gippo) < 5%", "gippo" in br and br["gippo"] < 0.05),
         ("C6 BR gap(mappo) > BR gap(gippo)", "gippo" in br and "mappo" in br and br["mappo"] > br["gippo"]),
-        ("C7 graded cost (w=0.1) raises success over w=0", P and "gippo_w0" in m and P["success"] > m["gippo_w0"]["success"]),
+        ("C7 graded failure cost raises MSR over constant c_fail", P and "gippo_w0" in m and P["success"] > m["gippo_w0"]["success"]),
     ]
     print()
     for name, ok in checks:

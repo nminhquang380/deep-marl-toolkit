@@ -147,3 +147,4 @@ results/
 runs/
 results/
 __pycache__/
+gtmarl/data/

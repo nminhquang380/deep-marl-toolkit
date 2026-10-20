@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # All training runs of Sec. V (v22). CPU only, one thread per process, niced.
-# Usage: bash gtmarl/scripts/sweep.sh [OUT_DIR] [MAX_PARALLEL]
+# Usage: bash gtmarl/scripts/sweep.sh [OUT_DIR (default gtmarl/data/...)] [MAX_PARALLEL]
 #   ITERS (main, default 1500), ITERS_AUX (other experiments, default 1000)
 set -euo pipefail
-OUT=${1:-/data/$USER/gtmarl_runs}
+DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
+OUT=${1:-$DATA/gtmarl_runs}
 P=${2:-24}
 ITERS=${ITERS:-1500}
 IA=${ITERS_AUX:-1000}

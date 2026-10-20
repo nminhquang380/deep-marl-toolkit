@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Phase 0 pilot (~2-2.5 h): 5 training runs in parallel (default setting of Sec. V-A),
 # benchmarks, best-response gap and the go/no-go table.
-# Usage: bash gtmarl/scripts/pilot.sh [OUT_DIR] [ITERS]
+# Usage: bash gtmarl/scripts/pilot.sh [OUT_DIR (default gtmarl/data/...)] [ITERS]
 set -euo pipefail
-OUT=${1:-/data/$USER/gtmarl_pilot}
+DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
+OUT=${1:-$DATA/gtmarl_pilot}
 ITERS=${2:-1500}
 mkdir -p "$OUT/logs" "$OUT/results"
 PY="nice -n 10 python -m gtmarl.train --iters $ITERS --train threads=1 device=cpu --out $OUT/main"

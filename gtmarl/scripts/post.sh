@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Evaluation, best-response gap and trajectories after sweep.sh (v22, Sec. V).
-# Usage: bash gtmarl/scripts/post.sh [OUT_DIR] [MAX_PARALLEL]
+# Usage: bash gtmarl/scripts/post.sh [OUT_DIR (default gtmarl/data/...)] [MAX_PARALLEL]
 set -euo pipefail
-OUT=${1:-/data/$USER/gtmarl_runs}
+DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"   # gtmarl/data
+OUT=${1:-$DATA/gtmarl_runs}
 P=${2:-16}
 R=$OUT/results; mkdir -p "$R"
 EV="nice -n 10 python -m gtmarl.evaluate --episodes 1024"
