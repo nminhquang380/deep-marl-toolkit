@@ -6,9 +6,10 @@ SNR level, bearer size and ergodic per-RB rate are functions of the voxel
 (Eqs. (1)-(6)) and are precomputed, so a slot costs a few array gathers.
 
 Observation of UAV i (Eqs. (18), (27)-(29)), as one flat vector:
-    [ nu_i (12) | xi_bar_i (6) | |M_i| (1) | k nearest xi_ji (6k) | {D_b / K_b} (B) ]
+    [ nu_i (12) | xi_bar_i (6) | |M_i| (1) | nearest xi_ji (6 * nbr_cap) | {D_b / K_b} (B) ]
 xi_bar_i is the mean aggregation of Eq. (29); the MLP f_omega of Eq. (30) lives
-in the model. The k-nearest block is used only by the IPPO-MLP benchmark.
+in the model. The nearest-neighbour block feeds the message MLP of gippo_msg and,
+truncated to knn_k, the IPPO-MLP benchmark.
 """
 from __future__ import annotations
 
@@ -140,7 +141,8 @@ class LAWNEnv:
         self.sep_move = cfg.d_safe + cfg.v_max
         self.rng = np.random.default_rng(seed)
         self.k = cfg.knn_k
-        self.obs_dim = OWN_DIM + GRAPH_DIM + NBR_DIM * self.k + self.M
+        self.cap = max(cfg.nbr_cap, cfg.knn_k)
+        self.obs_dim = OWN_DIM + GRAPH_DIM + NBR_DIM * self.cap + self.M
         self.state_dim = 3 * self.N + 3 * self.N + self.N + self.N + self.M
         self._all_vox = np.stack(np.meshgrid(np.arange(cfg.W), np.arange(cfg.R), np.arange(cfg.H),
                                              indexing="ij"), -1).reshape(-1, 3)
@@ -362,7 +364,7 @@ class LAWNEnv:
 
     # ----------------------------------------------------------- observation
     def _obs(self) -> Dict[str, np.ndarray]:
-        cfg, N, k = self.cfg, self.N, self.k
+        cfg, N, k = self.cfg, self.N, self.cap
         posf = self.pos.astype(np.float32)
         gb = self.radio.gbs_vox[self.b].astype(np.float32)
         Db = np.take_along_axis(self.D, self.b, axis=1)
@@ -394,7 +396,8 @@ class LAWNEnv:
         self._nbr_cnt = cnt[..., 0]
         mean = (feat * nbr[..., None]).sum(2) / np.maximum(cnt, 1.0)             # Eq. (29)
 
-        # k nearest neighbours within d_comm (IPPO-MLP benchmark), zero-padded
+        # nearest neighbours within d_comm, sorted by distance and zero-padded to nbr_cap
+        # (message passing of gippo_msg; the first knn_k entries feed IPPO-MLP)
         dkey = np.where(nbr, dist, np.inf)
         order = np.argsort(dkey, axis=-1)[..., :k]                               # (E,N,k)
         valid = np.take_along_axis(nbr, order, axis=-1)

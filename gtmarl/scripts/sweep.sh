@@ -12,31 +12,33 @@ ITERS=${ITERS:-1500}
 IA=${ITERS_AUX:-1000}
 S5=${SEEDS_MAIN:-"0 1 2 3 4"}
 S3=${SEEDS_AUX:-"0 1 2"}
+PA=${PROPOSED:-gippo}            # proposed learner: gippo (v22 Eq. (29)) or gippo_msg
 mkdir -p "$OUT/logs"
 J="$OUT/jobs.txt"; : > "$J"
 PY="python -m gtmarl.train --train threads=1 device=cpu"
 
 # V-D scalability (longest first): retrained per N; N = 30, B = 4 comes from V-C
-for N in 60 50 40 20 10; do for s in $S3; do for a in gippo mappo; do
+for N in 60 50 40 20 10; do for s in $S3; do for a in $PA mappo; do
   echo "$PY --iters $IA --algo $a --seed $s --out $OUT/scal --env N=$N M=4" >> "$J"; done; done; done
-for N in 60 50 40 30 20 10; do for s in $S3; do for a in gippo mappo; do
+for N in 60 50 40 30 20 10; do for s in $S3; do for a in $PA mappo; do
   echo "$PY --iters $IA --algo $a --seed $s --out $OUT/scal --env N=$N M=9" >> "$J"; done; done; done
 # V-B / V-C main comparison (N = 30, B = 4)
-for s in $S5; do for a in gippo ippo_mlp mappo; do
+for s in $S5; do for a in $PA ippo_mlp mappo; do
   echo "$PY --iters $ITERS --algo $a --seed $s --out $OUT/main" >> "$J"; done; done
 # V-E SNR quantisation L and penalty weight mu (L = 3, mu = 3 eta = 4.5 come from V-C)
 for s in $S3; do
-  for L in 1 2 4;      do echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/quant --tag L$L --env L=$L" >> "$J"; done
-  for mu in 1.5 3.0 9.0; do echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/mu --tag mu$mu --env mu=$mu" >> "$J"; done
+  for L in 1 2 4;      do echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/quant --tag L$L --env L=$L" >> "$J"; done
+  for mu in 1.5 3.0 9.0; do echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/mu --tag mu$mu --env mu=$mu" >> "$J"; done
 done
 # V-F ablations
 for s in $S3; do
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag nococell --env ablate=cocell"   >> "$J"
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag nobeta   --env ablate=beta_nbr" >> "$J"
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag nopos    --env ablate=own_pos"  >> "$J"
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag noshape  --env w_nav=0"         >> "$J"
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag lostpen  --env penalty=lost"    >> "$J"
-  echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag w0       --env w_fail_dist=0"   >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag nococell --env ablate=cocell"   >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag nobeta   --env ablate=beta_nbr" >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag nopos    --env ablate=own_pos"  >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag noshape  --env w_nav=0"         >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag lostpen  --env penalty=lost"    >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag graded   --env w_fail_dist=0.5" >> "$J"
+  if [ "$PA" = gippo_msg ]; then echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag rawmean" >> "$J"; fi
 done
 
 echo "$(wc -l < "$J") jobs -> $OUT  (parallel $P)"

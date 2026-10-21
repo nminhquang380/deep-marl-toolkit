@@ -8,7 +8,7 @@ Self-contained; it does not import `marltoolkit` (the ICCC code stays untouched)
 |---|---|---|
 | `config.py` | all parameters (`EnvConfig`, `TrainConfig`), SNR-level presets for L = 1..4 | Sec. II, V-A |
 | `env.py` | vectorised Markov game G: association, average SNR, levels, bearers, ergodic Rician rate, demand, penalty, admissible set, cost, shaping, observations, metrics | Eqs. (1)-(29) |
-| `models.py` | shared encoder f_ω (graph / k-NN MLP / none), actor, critic, value normalisation | Eqs. (29)-(31) |
+| `models.py` | shared encoder f_ω (graph mean / graph with message MLP / k-NN MLP / none), actor, critic (MAPPO: V(s, o_i)), value normalisation | Eqs. (29)-(31) |
 | `ppo.py` | graph-aided IPPO (γ = 1, GAE), IPPO-MLP, CTDE-MAPPO | Alg. 1, Eqs. (32)-(35) |
 | `heuristics.py` | SP (shortest path), MBR (myopic best response) | V-A benchmarks |
 | `br_gap.py` | normalised best-response gap ε̂ | Eq. (36) |
@@ -23,6 +23,8 @@ Self-contained; it does not import `marltoolkit` (the ICCC code stays untouched)
 cd ~/deep-marl-toolkit && git pull && git checkout gtmarl-twc
 python -m pytest -q gtmarl/tests
 bash gtmarl/scripts/pilot.sh gtmarl/data/gtmarl_pilot          # ~2-2.5 h, prints GO / NO-GO
+bash gtmarl/scripts/pilot2.sh                                   # round 2: gippo_msg, ippo, fixed MAPPO, new BR gap
+PROPOSED=gippo_msg bash gtmarl/scripts/sweep.sh ...             # choose the proposed variant after the pilot
 bash gtmarl/scripts/sweep.sh gtmarl/data/gtmarl_runs 24         # 117 runs, ~10-12 h on 24 cores
 bash gtmarl/scripts/post.sh  gtmarl/data/gtmarl_runs 16         # evaluation + BR gap, ~3 h
 python -m gtmarl.plots --runs gtmarl/data/gtmarl_runs           # figs/*.pdf, *.tex
@@ -54,7 +56,7 @@ Values marked † are not fixed by v22 and were chosen here; please confirm.
 | Levels / bearers† | L = 3: γ̄ = 25.6 / 17.1 / 10.0 dB → β = 2 / 3 / 5 RBs at R_min = 6 Mb/s (thresholds = inverse ergodic rate + 0.1 dB); presets for L = 1, 2, 4 in `config.py` |
 | UAVs / origins | N = 30, three depots† at GBS 1-3 (radius 7 voxels, two lowest layers), destinations uniform, min. O-D distance 12 voxels† |
 | Mobility† | v_max = 1 voxel/slot, d_safe = 1, d_comm = 4 voxels, η = 1.5 |
-| Cost | μ = 3η = 4.5, c_fail = 100†, graded failure w = 0.5† (see below), w_nav = 0.05† |
+| Cost | μ = 3η = 4.5, c_fail = 100†, w_nav = 0.05† (constant c_fail as in Eq. (21); graded variant only as ablation) |
 | PPO† | 32 episodes/iter, 1500 iters (1000 for V-D...V-F), lr 3e-4, clip 0.2, λ = 0.95, 5 epochs × 4 minibatches, entropy 0.01 → 0.001, 128-unit MLPs, d_e = 64, k = 4 for IPPO-MLP |
 
 Episodes satisfy the route condition of Sec. II-A (initial and final configurations
@@ -70,11 +72,10 @@ episodes meeting it is reported as `route_ok`.
 
 ## Deviations from v22 to discuss
 
-1. **Graded failure cost.** With a constant c_fail in Eq. (21) and the deadline reset of Υ_i in
-   Eq. (25), the shaping telescopes to a constant in failed episodes as well, so failed episodes
-   carry no learning signal and even a single UAV does not learn to arrive. The code charges
-   c_fail + w‖q_i − d_i‖ (`w_fail_dist=0` reproduces v22; ablation `w0` in V-F). Prop. 1 and 2 are
-   unaffected (the term depends on q_i and t only).
+1. **Graded failure cost (now off by default).** In an early, sparser setting a single UAV did not
+   learn to arrive with a constant c_fail. In the v22 setting the pilot shows no difference
+   (MSR 0.993 with and without), so Eq. (21) is kept as written; `w_fail_dist` remains as an
+   ablation (`graded` in V-F).
 2. **Scale of c_fail.** One violating slot costs up to μβ = 4.5 × 5 ≈ 22, so with c_fail = 10 a UAV
    prefers to miss its deadline rather than cross a congested cell (an idle swarm scores a lower
    J than SP). c_fail = 100 restores the intended ordering.

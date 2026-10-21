@@ -68,11 +68,12 @@ class EnvConfig:
     # ---- Cost / reward (Eqs. (14), (21), (25)) ----------------------------------
     mu: float = 4.5             # penalty weight, 3 * eta (Remark 1)
     c_fail: float = 100.0      # must exceed the penalty a UAV can accumulate (mu * beta per slot)
-    w_fail_dist: float = 0.5    # graded failure cost c_fail + w ||q_i - d_i|| (0 = v22 Eq. (21))
+    w_fail_dist: float = 0.0    # graded failure cost c_fail + w ||q_i - d_i||; 0 = v22 Eq. (21) (pilot: no effect at N = 30)
     w_nav: float = 0.05         # shaping weight (0 = ablation without shaping)
     penalty: str = "marginal"   # "marginal" (Eq. (14)) | "lost" (beta_i - kappa_i, ablation)
     ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)
     knn_k: int = 4              # neighbours of the IPPO-MLP benchmark
+    nbr_cap: int = 8            # neighbours carried in the observation for message passing (|M_i| itself is uncapped)
 
     # ---- Episode generation -------------------------------------------------
     init_check: str = "soft"    # "strict": initial and final configurations overload no cell (Sec. II-A);
@@ -90,7 +91,7 @@ class EnvConfig:
 
 @dataclass
 class TrainConfig:
-    algo: str = "gippo"         # gippo | ippo_mlp | ippo | mappo
+    algo: str = "gippo"         # gippo | gippo_msg | ippo_mlp | ippo | mappo
     seed: int = 0
     iters: int = 1500
     n_envs: int = 32            # episodes per iteration (N_ep in Alg. 1)

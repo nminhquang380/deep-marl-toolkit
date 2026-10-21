@@ -39,11 +39,27 @@ STYLE = {"gippo": ("C3", "o", "-"), "gippo_tr": ("C3", "o", "--"), "ippo_mlp": (
          "mappo": ("C2", "^", "-."), "greedy": ("C7", "x", ":"), "myopic": ("C1", "d", ":")}
 
 
+PROPOSED = "gippo"   # set by --proposed; that algo is plotted as "Proposed"
+
+
+def canon(algo: str) -> str:
+    """Map the chosen proposed variant to the key "gippo" (and the other graph variant away)."""
+    if algo == PROPOSED:
+        return "gippo"
+    if algo in ("gippo", "gippo_msg"):
+        return "gippo_alt"
+    return algo
+
+
 def rd(path):
     if not os.path.exists(path):
         return []
     with open(path) as f:
-        return list(csv.DictReader(f))
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        if "method" in r:
+            r["method"] = canon(r["method"])
+    return rows
 
 
 def fnum(x):
@@ -70,7 +86,7 @@ def br_results(res):
         d = json.load(open(f))
         c = d["ckpt"]
         it = int(c.split("_")[1].split(".")[0]) if c.split("_")[1].split(".")[0].isdigit() else -1
-        out[d["algo"]][it].append(d["gap_rel"])
+        out[canon(d["algo"])][it].append(d["gap_rel"])
     return out
 
 
@@ -78,7 +94,7 @@ def br_results(res):
 def fig_convergence(root, res, out):
     curves = defaultdict(list)
     for d in sorted(glob.glob(os.path.join(root, "main", "*_N30_M4_s*"))):
-        algo = os.path.basename(d).split("_N30")[0]
+        algo = canon(os.path.basename(d).split("_N30")[0])
         rows = rd(os.path.join(d, "progress.csv"))
         if rows:
             curves[algo].append({k: np.array([fnum(r.get(k)) for r in rows]) for k in
@@ -236,7 +252,7 @@ def table_ablation(res, out):
     names = [("full", "Proposed (full)"), ("nococell", "w/o co-cell indicator"),
              ("nobeta", "w/o neighbour bearer $\\beta_j$"), ("nopos", "w/o own position $\\mathbf{q}_i$"),
              ("noshape", "w/o shaping $r_i^{\\rm nav}$"), ("lostpen", "penalty $\\beta_i-\\kappa_i$"),
-             ("w0", "constant failure cost")]
+             ("graded", "graded failure cost"), ("rawmean", "mean of raw features (Eq. (29))")]
     cols = [("success", "MSR", 3), ("detour", "Detour", 3), ("p_out", "$P_{\\rm out}$", 4),
             ("social_cost", "$\\sum_i J_i$", 1)]
     L = ["\\begin{tabular}{l" + "c" * len(cols) + "}", "\\toprule",
@@ -287,7 +303,10 @@ def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--runs", required=True)
     p.add_argument("--out", default=None)
+    p.add_argument("--proposed", default=os.environ.get("PROPOSED", "gippo"))
     a = p.parse_args(argv)
+    global PROPOSED
+    PROPOSED = a.proposed
     res = os.path.join(a.runs, "results")
     out = a.out or os.path.join(a.runs, "figs")
     os.makedirs(out, exist_ok=True)

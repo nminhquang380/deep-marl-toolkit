@@ -23,7 +23,8 @@ from .models import ActorCritic
 
 
 ALGOS = {  # algo -> (neighbour encoding, centralised critic, team reward)
-    "gippo": ("graph", False),      # proposed graph-aided IPPO
+    "gippo": ("graph", False),      # proposed graph-aided IPPO, mean of raw features (v22 Eq. (29))
+    "gippo_msg": ("graph_msg", False),  # proposed, with a message MLP before the mean
     "ippo_mlp": ("knn", False),     # IPPO-MLP benchmark
     "ippo": ("none", False),        # IPPO without neighbour information
     "mappo": ("graph", True),       # CTDE-MAPPO benchmark (social cost, centralised critic)
@@ -34,12 +35,12 @@ def build_model(algo: str, env: LAWNEnv, tc: TrainConfig) -> ActorCritic:
     nbr, central = ALGOS[algo]
     model = ActorCritic(n_gbs=env.M, n_actions=env.A, hidden=tc.hidden, emb_dim=tc.emb_dim,
                         nbr=nbr, knn_k=env.k, state_dim=env.state_dim if central else 0,
-                        obs_dim=env.obs_dim if central else 0)
+                        obs_dim=env.obs_dim if central else 0, nbr_cap=env.cap)
     if getattr(tc, "init_from", ""):
         # warm start (e.g. CTDE-MAPPO from a trained IPPO policy): copy encoder and actor
         sd = torch.load(tc.init_from, map_location="cpu")
         own = model.state_dict()
-        keep = {k: v for k, v in sd.items() if k.startswith(("encoder.", "actor.")) and k in own
+        keep = {k: v for k, v in sd.items() if k.startswith(("encoder.", "actor.", "phi.")) and k in own
                 and own[k].shape == v.shape}
         own.update(keep)
         model.load_state_dict(own)

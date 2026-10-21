@@ -70,8 +70,10 @@ def main(argv=None):
     ec, tc0, policy = load_run(a.run, a.ckpt)
     # deviator: own critic (it minimises its own J_0), warm-started from the trained actor
     learner = ActorCritic(ec.M, policy.actor[-1].out_features, tc0.hidden, tc0.emb_dim,
-                          nbr=policy.nbr, knn_k=policy.knn_k, state_dim=0)
+                          nbr=policy.nbr, knn_k=policy.knn_k, state_dim=0, nbr_cap=policy.nbr_cap)
     learner.encoder.load_state_dict(policy.encoder.state_dict())
+    if hasattr(policy, "phi"):
+        learner.phi.load_state_dict(policy.phi.state_dict())
     learner.actor.load_state_dict(policy.actor.state_dict())
     if not policy.central:
         learner.critic.load_state_dict(policy.critic.state_dict())
@@ -84,7 +86,7 @@ def main(argv=None):
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
     tc.ent_coef = tc.ent_coef_final
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
-    algo = {"graph": "gippo", "knn": "ippo_mlp", "none": "ippo"}[policy.nbr]
+    algo = {"graph": "gippo", "graph_msg": "gippo_msg", "knn": "ippo_mlp", "none": "ippo"}[policy.nbr]
     tr = PPOTrainer(algo, env, tc, model=learner, opponent=opponent, learner_agents=np.array([0]))
 
     # candidate 0 = the trained policy (no deviation)

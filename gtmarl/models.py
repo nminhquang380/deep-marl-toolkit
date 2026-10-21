@@ -57,7 +57,9 @@ class ValueNorm(nn.Module):
 class ActorCritic(nn.Module):
     """Shared encoder f_omega, actor pi_theta and critic V_psi (Eqs. (29)-(31)).
 
-    nbr = "graph" -> e_i = f_omega([nu_i, xi_bar_i, |M_i|])        (proposed)
+    nbr = "graph" -> e_i = f_omega([nu_i, xi_bar_i, |M_i|])        (v22 Eq. (29)-(30))
+    nbr = "graph_msg" -> e_i = f_omega([nu_i, mean_j phi(xi_ji), |M_i|]) with a message
+                     MLP phi applied to every neighbour before the mean (GraphSAGE-mean)
     nbr = "knn"   -> e_i = f_omega([nu_i, xi_(1)i, ..., xi_(k)i])  (IPPO-MLP benchmark)
     nbr = "none"  -> e_i = f_omega(nu_i)                           (no neighbour information)
     state_dim > 0 -> centralised critic V(s, o_i) on the joint state plus the agent's own
@@ -66,11 +68,15 @@ class ActorCritic(nn.Module):
     """
 
     def __init__(self, n_gbs: int, n_actions: int, hidden: int = 128, emb_dim: int = 64,
-                 nbr: str = "graph", knn_k: int = 4, state_dim: int = 0, obs_dim: int = 0):
+                 nbr: str = "graph", knn_k: int = 4, state_dim: int = 0, obs_dim: int = 0,
+                 nbr_cap: int = 8, msg_dim: int = 32):
         super().__init__()
-        self.nbr, self.knn_k, self.n_gbs = nbr, knn_k, n_gbs
-        self.use_graph = nbr == "graph"
-        enc_in = OWN_DIM + {"graph": GRAPH_DIM, "knn": NBR_DIM * knn_k, "none": 0}[nbr]
+        self.nbr, self.knn_k, self.n_gbs, self.nbr_cap = nbr, knn_k, n_gbs, max(nbr_cap, knn_k)
+        self.use_graph = nbr in ("graph", "graph_msg")
+        if nbr == "graph_msg":
+            self.phi = nn.Sequential(mlp(NBR_DIM, 64, msg_dim, n_hidden=1), nn.Tanh())
+        enc_in = OWN_DIM + {"graph": GRAPH_DIM, "graph_msg": msg_dim + 1, "knn": NBR_DIM * knn_k,
+                            "none": 0}[nbr]
         self.encoder = nn.Sequential(mlp(enc_in, hidden, emb_dim, n_hidden=1), nn.Tanh())
         z_dim = emb_dim + n_gbs
         self.actor = mlp(z_dim, hidden, n_actions, out_gain=0.01)
@@ -86,10 +92,19 @@ class ActorCritic(nn.Module):
         o = OWN_DIM
         graph = obs[..., o:o + GRAPH_DIM]
         o += GRAPH_DIM
-        knn = obs[..., o:o + NBR_DIM * self.knn_k]
+        block = obs[..., o:o + NBR_DIM * self.nbr_cap]
         dem = obs[..., -self.n_gbs:]
-        x = {"graph": lambda: torch.cat([own, graph], -1), "knn": lambda: torch.cat([own, knn], -1),
-             "none": lambda: own}[self.nbr]()
+        if self.nbr == "graph":
+            x = torch.cat([own, graph], -1)
+        elif self.nbr == "graph_msg":
+            nb = block.reshape(*block.shape[:-1], self.nbr_cap, NBR_DIM)
+            valid = (nb[..., 3] > 0).float()                         # normalised distance > 0
+            msg = (self.phi(nb) * valid[..., None]).sum(-2) / valid.sum(-1, keepdim=True).clamp(min=1.0)
+            x = torch.cat([own, msg, graph[..., -1:]], -1)          # graph[..., -1] = |M_i| / 8
+        elif self.nbr == "knn":
+            x = torch.cat([own, block[..., :NBR_DIM * self.knn_k]], -1)
+        else:
+            x = own
         return torch.cat([self.encoder(x), dem], -1)
 
     def dist(self, obs: torch.Tensor, mask: torch.Tensor):

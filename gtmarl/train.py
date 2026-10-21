@@ -28,7 +28,7 @@ def run_dir(tc: TrainConfig, ec: EnvConfig) -> str:
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--algo", default="gippo", choices=["gippo", "ippo_mlp", "ippo", "mappo"])
+    p.add_argument("--algo", default="gippo", choices=["gippo", "gippo_msg", "ippo_mlp", "ippo", "mappo"])
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--iters", type=int, default=None)
     p.add_argument("--out", default=None)
