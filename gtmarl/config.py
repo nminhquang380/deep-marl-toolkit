@@ -32,13 +32,13 @@ class EnvConfig:
     h_min: float = 62.5         # altitude of the lowest voxel centre [m]
 
     # ---- Network (Sec. II, V-A) ------------------------------------------------
-    N: int = 30                 # number of UAVs
+    N: int = 40                 # number of UAVs (calibrated: SP outage ~3.6 %, MBR fails)
     M: int = 4                  # number of GBSs (B); square grid -> ISD 750 m for B = 4
     gbs_xy: Optional[List[Tuple[float, float]]] = None   # voxel coords; None -> regular grid
     gbs_height: float = 25.0    # [m]
     K_b: int = 51               # RBs per GBS (20 MHz carrier, 30 kHz SCS)
     K_b_scale_with_N: bool = False
-    N_ref: int = 30
+    N_ref: int = 40
 
     # ---- Radio (Eqs. (2)-(9)) ------------------------------------------------
     delta_f: float = 360e3      # RB bandwidth (12 x 30 kHz) [Hz]
@@ -70,7 +70,8 @@ class EnvConfig:
     c_fail: float = 100.0      # must exceed the penalty a UAV can accumulate (mu * beta per slot)
     w_fail_dist: float = 0.0    # graded failure cost c_fail + w ||q_i - d_i||; 0 = v22 Eq. (21) (pilot: no effect at N = 30)
     w_nav: float = 0.05         # shaping weight (0 = ablation without shaping)
-    penalty: str = "marginal"   # "marginal" (Eq. (14)) | "lost" (beta_i - kappa_i, ablation)
+    penalty: str = "marginal"   # "marginal" g_i of Eq. (14) | "lost" beta_i - kappa_i |
+                                # "indicator" 1[R_i < R_min] | "shortfall" [R_min - R_i]^+ / R_min
     ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)
     knn_k: int = 4              # neighbours of the IPPO-MLP benchmark
     nbr_cap: int = 8            # neighbours carried in the observation for message passing (|M_i| itself is uncapped)

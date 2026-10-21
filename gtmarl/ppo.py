@@ -37,12 +37,16 @@ def build_model(algo: str, env: LAWNEnv, tc: TrainConfig) -> ActorCritic:
                         nbr=nbr, knn_k=env.k, state_dim=env.state_dim if central else 0,
                         obs_dim=env.obs_dim if central else 0, nbr_cap=env.cap)
     if getattr(tc, "init_from", ""):
-        # warm start (e.g. CTDE-MAPPO from a trained IPPO policy): copy encoder and actor
+        # warm start (e.g. CTDE-MAPPO from a trained IPPO policy): copy encoder, message MLP and
+        # actor; every such tensor must exist with the same shape, otherwise fail loudly
         sd = torch.load(tc.init_from, map_location="cpu")
         own = model.state_dict()
-        keep = {k: v for k, v in sd.items() if k.startswith(("encoder.", "actor.", "phi.")) and k in own
-                and own[k].shape == v.shape}
-        own.update(keep)
+        keys = [k for k in own if k.startswith(("encoder.", "actor.", "phi."))]
+        bad = [k for k in keys if k not in sd or sd[k].shape != own[k].shape]
+        if bad:
+            raise ValueError(f"init_from {tc.init_from}: incompatible tensors {bad[:4]} "
+                             "(source and target must use the same neighbour encoder)")
+        own.update({k: sd[k] for k in keys})
         model.load_state_dict(own)
     return model
 

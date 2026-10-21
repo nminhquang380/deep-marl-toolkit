@@ -283,8 +283,13 @@ class LAWNEnv:
 
     def penalty(self) -> np.ndarray:
         """Congestion penalty at the current state."""
-        if self.cfg.penalty == "lost":                                           # beta_i - kappa_i (ablation)
+        pen = self.cfg.penalty
+        if pen == "lost":                                                        # beta_i - kappa_i
             return self.m_cur * (1.0 - self.served_fraction())
+        if pen == "shortfall":                                                   # [R_min - R_i]^+ / R_min = 1 - s_b
+            return 1.0 - self.served_fraction()
+        if pen == "indicator":                                                   # 1[R_i < R_min] = 1[D_b > K_b]
+            return (np.take_along_axis(self.D, self.b, axis=1) > self.K).astype(float)
         over = np.maximum(self.D - self.K, 0.0)                                  # Eq. (14)
         return np.minimum(self.m_cur, np.take_along_axis(over, self.b, axis=1))
 

@@ -106,6 +106,9 @@ def main(argv=None):
     rows: List[Dict] = []
 
     for run in runs:
+        if not os.path.exists(os.path.join(run, a.ckpt)):
+            print(f"WARNING: skipping {run} (no {a.ckpt}; run failed or unfinished)", flush=True)
+            continue
         ec0, tc, model = load_run(run, a.ckpt)
         for N in (a.N or [ec0.N]):
             if tc.algo == "mappo" and N != ec0.N:
