@@ -183,7 +183,7 @@ class LAWNEnv:
                         break
             if got < c:
                 raise RuntimeError("depot too small for N; increase depot_radius / depot_layers")
-        return np.asarray(orig)
+        return np.asarray(orig)[self.rng.permutation(N)]
 
     def _sample_dests(self, orig):
         cfg, N, V, sep = self.cfg, self.N, self._all_vox, self.sep_move
@@ -251,6 +251,7 @@ class LAWNEnv:
         self.stat_overload = np.zeros(E)
         self.stat_potential = np.zeros(E)
         self.stat_slots = np.zeros(E)
+        self.stat_nbr = np.zeros(2)                       # sum |M_i|, #(|M_i| > k) over in-flight slots
         self.traj = [self.pos.copy()]
         self.D_hist = [self.D.copy()]
         return self._obs()
@@ -344,6 +345,8 @@ class LAWNEnv:
         self.stat_out += act * (delivered < cfg.R_min * (1 - 1e-9))              # outage, Sec. V-A
         self.stat_active_slots += act
         self.stat_rate_ratio += act * s_i
+        if hasattr(self, "_nbr_cnt"):
+            self.stat_nbr += [(act * self._nbr_cnt).sum(), (act * (self._nbr_cnt > self.k)).sum()]
         u = self.D / self.K
         self.stat_load_jain += live_env * u.sum(1) ** 2 / (self.M * (u ** 2).sum(1) + 1e-12)
         self.stat_overload += live_env * (self.D > self.K).mean(1)
@@ -388,6 +391,7 @@ class LAWNEnv:
         if "beta_nbr" in cfg.ablate:
             feat[..., 5] = 0.0
         cnt = nbr.sum(-1, keepdims=True).astype(np.float32)
+        self._nbr_cnt = cnt[..., 0]
         mean = (feat * nbr[..., None]).sum(2) / np.maximum(cnt, 1.0)             # Eq. (29)
 
         # k nearest neighbours within d_comm (IPPO-MLP benchmark), zero-padded
@@ -435,5 +439,7 @@ class LAWNEnv:
             "overload": float((self.stat_overload / slots).mean()),
             "jain_util": float(jain_u.mean()),
             "ep_len": float(self.stat_slots.mean()),
-            "route_ok": float(self.route_ok.mean()),          # share of episodes meeting Sec. II-A
+            "route_ok": float(self.route_ok.mean()),            # share of episodes meeting Sec. II-A
+            "nbr_mean": float(self.stat_nbr[0] / act.sum()),   # mean |M_i| of in-flight UAVs
+            "nbr_gt_k": float(self.stat_nbr[1] / act.sum()),   # share with more than k neighbours
         }

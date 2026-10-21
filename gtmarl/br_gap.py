@@ -1,17 +1,24 @@
-"""Empirical best-response (Nash) gap of a trained swarm (Remark 1).
+"""Empirical best-response (Nash) gap, Eq. (36) of manuscript v22.
 
-UAV 0 deviates: its policy is re-trained by PPO on its own cost while all other
-UAVs keep the frozen trained policy. Since missions are drawn i.i.d. and the
-UAVs are homogeneous, UAV 0 is a representative player. The gap is
+UAV 0 deviates: starting from the trained policy, its own policy is re-trained by PPO
+on its own cost while all other UAVs keep the frozen trained policy. UAV indices are
+shuffled every episode, so UAV 0 is a uniformly random player of the homogeneous swarm;
+running several seeds gives the deviator set I of Eq. (36).
 
-    gap = J_0(pi, pi_-0) - J_0(pi_BR, pi_-0) >= 0 (up to estimation error),
-
-reported in absolute terms and relative to J_0(pi, pi_-0). A small gap means
-no UAV can profit noticeably from a unilateral change of policy.
+Estimator
+---------
+* Candidates: the trained policy itself (iteration 0) and snapshots of the deviator
+  every ``iters / n_snap`` iterations. The approximate best response pi_hat is the
+  candidate with the lowest J_0 on a validation set of missions, so it can never be
+  worse than not deviating except through test noise (a fine-tuned deviator can get
+  worse, e.g. when a rare missed deadline costs c_fail).
+* Test: J_0 of pi and of pi_hat on the same test missions (common random numbers;
+  missions depend only on the environment seed), giving a paired estimate of
+  gap = J_0(pi) - J_0(pi_hat) with its standard error.
 
 Example
 -------
-python -m gtmarl.br_gap --run runs/main/gippo_N20_M4_s0 --ckpt model_1500.pt --iters 300
+python -m gtmarl.br_gap --run gtmarl/data/gtmarl_runs/main/gippo_N30_M4_s0 --ckpt model_1500.pt
 """
 from __future__ import annotations
 
@@ -29,17 +36,19 @@ from .evaluate import load_run
 from .models import ActorCritic
 from .ppo import PPOTrainer, rollout
 
+VAL_SEED, TEST_SEED = 778, 777
+
 
 @torch.no_grad()
-def agent0_cost(ec, learner, opponent, n_episodes, n_envs, seed):
+def agent0_costs(ec, learner, opponent, n_episodes, n_envs, seed):
+    """Per-episode cost and arrival of UAV 0 (same missions for the same seed)."""
     env = LAWNEnv(ec, n_envs=n_envs, seed=seed)
     costs, succ = [], []
     for _ in range(max(1, n_episodes // n_envs)):
         rollout(env, learner, torch.device("cpu"), opponent=opponent, learner_agents=np.array([0]))
         costs.append(env.stat_cost[:, 0].copy())
         succ.append(env.arrived[:, 0].copy())
-    c = np.concatenate(costs)
-    return float(c.mean()), float(c.std() / np.sqrt(len(c))), float(np.concatenate(succ).mean())
+    return np.concatenate(costs), np.concatenate(succ)
 
 
 def main(argv=None):
@@ -47,7 +56,9 @@ def main(argv=None):
     p.add_argument("--run", required=True)
     p.add_argument("--ckpt", default="model_last.pt")
     p.add_argument("--iters", type=int, default=300)
+    p.add_argument("--n_snap", type=int, default=6)
     p.add_argument("--n_envs", type=int, default=64)
+    p.add_argument("--val_episodes", type=int, default=1024)
     p.add_argument("--eval_episodes", type=int, default=2048)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--train", nargs="*", default=[], help="TrainConfig overrides for the deviator")
@@ -57,7 +68,7 @@ def main(argv=None):
     torch.manual_seed(a.seed)
 
     ec, tc0, policy = load_run(a.run, a.ckpt)
-    # deviator: individual critic (it optimises its own J_0), warm-started from the trained actor
+    # deviator: own critic (it minimises its own J_0), warm-started from the trained actor
     learner = ActorCritic(ec.M, policy.actor[-1].out_features, tc0.hidden, tc0.emb_dim,
                           nbr=policy.nbr, knn_k=policy.knn_k, state_dim=0)
     learner.encoder.load_state_dict(policy.encoder.state_dict())
@@ -67,29 +78,44 @@ def main(argv=None):
         learner.vnorm.load_state_dict(policy.vnorm.state_dict())
     opponent = copy.deepcopy(policy).eval()
 
-    # J_0 when UAV 0 follows the trained policy
-    j_pi, se_pi, s_pi = agent0_cost(ec, policy, opponent, a.eval_episodes, a.n_envs, seed=777)
-
-    tc = apply_overrides(TrainConfig(), a.train)
+    # fine-tuning defaults: one agent's samples per iteration -> smaller steps
+    tc = TrainConfig(lr=1e-4, epochs=4, minibatches=2)
+    tc = apply_overrides(tc, a.train)
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
-    tc.ent_coef = tc.ent_coef_final               # fine-tuning, little extra exploration
+    tc.ent_coef = tc.ent_coef_final
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
     algo = {"graph": "gippo", "knn": "ippo_mlp", "none": "ippo"}[policy.nbr]
-    tr = PPOTrainer(algo, env, tc, model=learner,
-                    opponent=opponent, learner_agents=np.array([0]))
-    curve = []
+    tr = PPOTrainer(algo, env, tc, model=learner, opponent=opponent, learner_agents=np.array([0]))
+
+    # candidate 0 = the trained policy (no deviation)
+    c0, _ = agent0_costs(ec, policy, opponent, a.val_episodes, a.n_envs, VAL_SEED)
+    best_val, best_it, best_state = float(c0.mean()), 0, None
+    curve = [(0, best_val)]
+    every = max(1, a.iters // a.n_snap)
     for it in range(a.iters):
         tr.train_iter()
-        if (it + 1) % max(1, a.iters // 6) == 0:
-            j_br, se_br, _ = agent0_cost(ec, tr.model, opponent, 512, a.n_envs, seed=777)
-            curve.append((it + 1, j_br))
-            print(f"BR it {it + 1}: J0 {j_br:.4f} (trained policy {j_pi:.4f})", flush=True)
+        if (it + 1) % every == 0 or it == a.iters - 1:
+            c, _ = agent0_costs(ec, tr.model, opponent, a.val_episodes, a.n_envs, VAL_SEED)
+            curve.append((it + 1, float(c.mean())))
+            print(f"BR it {it + 1}: val J0 {c.mean():.4f} (policy {curve[0][1]:.4f})", flush=True)
+            if c.mean() < best_val:
+                best_val, best_it, best_state = float(c.mean()), it + 1, copy.deepcopy(tr.model.state_dict())
 
-    j_br, se_br, s_br = agent0_cost(ec, tr.model, opponent, a.eval_episodes, a.n_envs, seed=777)
-    res = {"run": a.run, "ckpt": a.ckpt, "algo": tc0.algo, "N": ec.N,
-           "J0_policy": j_pi, "J0_policy_se": se_pi, "succ0_policy": s_pi,
-           "J0_br": j_br, "J0_br_se": se_br, "succ0_br": s_br,
-           "gap": j_pi - j_br, "gap_rel": (j_pi - j_br) / max(abs(j_pi), 1e-9), "curve": curve}
+    # paired test on fresh missions
+    c_pi, s_pi = agent0_costs(ec, policy, opponent, a.eval_episodes, a.n_envs, TEST_SEED)
+    if best_state is None:
+        c_br, s_br = c_pi, s_pi
+    else:
+        learner.load_state_dict(best_state)
+        c_br, s_br = agent0_costs(ec, learner, opponent, a.eval_episodes, a.n_envs, TEST_SEED)
+    d = c_pi - c_br
+    j_pi = float(c_pi.mean())
+    res = {"run": a.run, "ckpt": a.ckpt, "algo": tc0.algo, "N": ec.N, "seed": a.seed,
+           "J0_policy": j_pi, "succ0_policy": float(s_pi.mean()),
+           "J0_br": float(c_br.mean()), "succ0_br": float(s_br.mean()),
+           "gap": float(d.mean()), "gap_se": float(d.std(ddof=1) / np.sqrt(len(d))),
+           "gap_rel": float(d.mean()) / max(abs(j_pi), 1e-9),
+           "best_iter": best_it, "val_curve": curve}
     print(json.dumps(res, indent=1))
     out = a.out or os.path.join(a.run, f"brgap_{os.path.splitext(a.ckpt)[0]}_s{a.seed}.json")
     with open(out, "w") as f:

@@ -112,6 +112,7 @@ class TrainConfig:
     save_every: int = 100
     out: str = "runs"
     tag: str = ""
+    init_from: str = ""         # warm-start encoder + actor from a checkpoint (e.g. MAPPO from IPPO)
 
 
 def _coerce(value: str, target):

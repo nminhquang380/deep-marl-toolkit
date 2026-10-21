@@ -38,6 +38,7 @@ def load_run(run: str, ckpt: str = "model_last.pt", device: str = "cpu"):
         cfg = json.load(f)
     ec = from_dict(EnvConfig, cfg["env"])
     tc = from_dict(TrainConfig, cfg["train"])
+    tc.init_from = ""                                   # weights come from the checkpoint below
     env = LAWNEnv(ec, n_envs=1)
     model = build_model(tc.algo, env, tc)
     model.load_state_dict(torch.load(os.path.join(run, ckpt), map_location=device))

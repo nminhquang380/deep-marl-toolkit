@@ -23,18 +23,25 @@ def main(argv=None):
     for r in rows:
         key = r["method"] + (f"_{r['tag']}" if r.get("tag") else "")
         g[key].append({k: float(v) for k, v in r.items() if k in
-                       ("success", "detour", "p_out", "jain_load", "social_cost", "J", "viol")})
+                       ("success", "detour", "p_out", "jain_load", "social_cost", "J", "viol",
+                        "nbr_mean", "nbr_gt_k")})
     m = {k: {kk: float(np.mean([x[kk] for x in v])) for kk in v[0]} for k, v in g.items()}
 
     print(f"{'method':10s} " + " ".join(f"{k:>9s}" for k in next(iter(m.values()))))
     for k, v in m.items():
         print(f"{k:10s} " + " ".join(f"{x:9.4f}" for x in v.values()))
 
-    br = {}
+    brs = defaultdict(list)
     for f in glob.glob(os.path.join(a.res, "br_*.json")):
         d = json.load(open(f))
-        br[d["algo"]] = d["gap_rel"]
-    print("\nrelative BR gap:", {k: f"{100 * v:.1f}%" for k, v in br.items()})
+        brs[d["algo"]].append(d)
+    br = {k: float(np.mean([d["gap_rel"] for d in v])) for k, v in brs.items()}
+    print()
+    for k, v in brs.items():
+        for d in v:
+            print(f"BR gap {k:9s}: J0(pi) {d['J0_policy']:.3f} -> J0(BR) {d['J0_br']:.3f}, "
+                  f"gap {d['gap']:.3f} +/- {d.get('gap_se', float('nan')):.3f} "
+                  f"({100 * d['gap_rel']:.1f}%), best iter {d.get('best_iter', '?')}")
 
     P, MY, GR = m.get("gippo"), m.get("myopic"), m.get("greedy")
     best = lambda k: min(MY[k], GR[k]) if MY and GR else float("nan")

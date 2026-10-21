@@ -60,12 +60,13 @@ class ActorCritic(nn.Module):
     nbr = "graph" -> e_i = f_omega([nu_i, xi_bar_i, |M_i|])        (proposed)
     nbr = "knn"   -> e_i = f_omega([nu_i, xi_(1)i, ..., xi_(k)i])  (IPPO-MLP benchmark)
     nbr = "none"  -> e_i = f_omega(nu_i)                           (no neighbour information)
-    state_dim > 0 -> centralised critic V(s) on the joint state (CTDE-MAPPO); the encoder
-                     is then trained by the actor loss only.
+    state_dim > 0 -> centralised critic V(s, o_i) on the joint state plus the agent's own
+                     observation ("agent-specific global state" of MAPPO [Yu et al.]);
+                     the encoder is then trained by the actor loss only.
     """
 
     def __init__(self, n_gbs: int, n_actions: int, hidden: int = 128, emb_dim: int = 64,
-                 nbr: str = "graph", knn_k: int = 4, state_dim: int = 0):
+                 nbr: str = "graph", knn_k: int = 4, state_dim: int = 0, obs_dim: int = 0):
         super().__init__()
         self.nbr, self.knn_k, self.n_gbs = nbr, knn_k, n_gbs
         self.use_graph = nbr == "graph"
@@ -75,7 +76,7 @@ class ActorCritic(nn.Module):
         self.actor = mlp(z_dim, hidden, n_actions, out_gain=0.01)
         self.central = state_dim > 0
         if self.central:
-            self.critic = mlp(state_dim, 2 * hidden, 1)
+            self.critic = mlp(state_dim + obs_dim, 2 * hidden, 1)
         else:
             self.critic = mlp(z_dim, hidden, 1)
         self.vnorm = ValueNorm()
@@ -99,5 +100,7 @@ class ActorCritic(nn.Module):
     def value(self, obs: torch.Tensor, state: torch.Tensor = None) -> torch.Tensor:
         """Normalised value estimate; use ``self.vnorm.denormalize`` for returns."""
         if self.central:
-            return self.critic(state).squeeze(-1)
+            st = state if state.dim() == obs.dim() else \
+                state.unsqueeze(-2).expand(*obs.shape[:-1], state.shape[-1])
+            return self.critic(torch.cat([st, obs], -1)).squeeze(-1)
         return self.critic(self._z(obs)).squeeze(-1)

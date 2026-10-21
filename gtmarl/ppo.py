@@ -32,8 +32,18 @@ ALGOS = {  # algo -> (neighbour encoding, centralised critic, team reward)
 
 def build_model(algo: str, env: LAWNEnv, tc: TrainConfig) -> ActorCritic:
     nbr, central = ALGOS[algo]
-    return ActorCritic(n_gbs=env.M, n_actions=env.A, hidden=tc.hidden, emb_dim=tc.emb_dim,
-                       nbr=nbr, knn_k=env.k, state_dim=env.state_dim if central else 0)
+    model = ActorCritic(n_gbs=env.M, n_actions=env.A, hidden=tc.hidden, emb_dim=tc.emb_dim,
+                        nbr=nbr, knn_k=env.k, state_dim=env.state_dim if central else 0,
+                        obs_dim=env.obs_dim if central else 0)
+    if getattr(tc, "init_from", ""):
+        # warm start (e.g. CTDE-MAPPO from a trained IPPO policy): copy encoder and actor
+        sd = torch.load(tc.init_from, map_location="cpu")
+        own = model.state_dict()
+        keep = {k: v for k, v in sd.items() if k.startswith(("encoder.", "actor.")) and k in own
+                and own[k].shape == v.shape}
+        own.update(keep)
+        model.load_state_dict(own)
+    return model
 
 
 def _t(x, device, dtype=torch.float32):
@@ -119,13 +129,15 @@ class PPOTrainer:
         T, E, N = ro["rew"].shape
         active = ro["active"] & ro["learner"][None, None, :]
         if self.algo == "mappo":
-            env_act = ro["active"].any(-1)
-            rew_team = ro["rew"].sum(-1) / N
-            adv_e, ret_e = gae_team(rew_team, ro["val"], env_act, tc.gae_lambda)
-            adv = np.broadcast_to(adv_e, (T, E, N))
+            # team reward (social cost / N) for every agent; per-agent value V(s, o_i);
+            # every agent's trajectory lasts while any UAV of its episode is active
+            env_act = np.broadcast_to(ro["active"].any(-1, keepdims=True), (T, E, N))
+            rew_team = np.broadcast_to(ro["rew"].sum(-1, keepdims=True) / N, (T, E, N))
+            adv, ret = gae_individual(rew_team, ro["val"], env_act, tc.gae_lambda)
             v_idx = np.argwhere(env_act)
+            v_obs = ro["obs"][v_idx[:, 0], v_idx[:, 1], v_idx[:, 2]]
             v_state = ro["state"][v_idx[:, 0], v_idx[:, 1]]
-            v_ret = ret_e[v_idx[:, 0], v_idx[:, 1], 0]
+            v_ret = ret[v_idx[:, 0], v_idx[:, 1], v_idx[:, 2]]
         else:
             adv, ret = gae_individual(ro["rew"], ro["val"], ro["active"], tc.gae_lambda)
 
@@ -138,7 +150,7 @@ class PPOTrainer:
         b_adv = adv[sel]
         b_adv = _t((b_adv - b_adv.mean()) / (b_adv.std() + 1e-8), dev)
         if self.algo == "mappo":
-            c_state, c_ret = _t(v_state, dev), _t(v_ret, dev)
+            c_obs, c_state, c_ret = _t(v_obs, dev), _t(v_state, dev), _t(v_ret, dev)
         else:
             c_ret = _t(ret[sel], dev)
         self.model.vnorm.update(c_ret)
@@ -165,7 +177,7 @@ class PPOTrainer:
                 ent = d.entropy().mean()
                 if self.algo == "mappo":
                     jv = vperm[k * vmb:(k + 1) * vmb]
-                    v = self.model.value(None, c_state[jv])
+                    v = self.model.value(c_obs[jv], c_state[jv])
                     v_loss = ((v - c_ret[jv]) ** 2).mean()
                 else:
                     v = self.model.value(b_obs[j])
