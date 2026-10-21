@@ -239,6 +239,8 @@ class LAWNEnv:
         self.orig = self.pos.copy()
         self.Tmin = np.ceil(np.abs(self.pos - self.dest).sum(-1) / self.cfg.v_max).astype(np.int64)
         self.Hdl = np.floor(self.cfg.eta * self.Tmin + 1e-9).astype(np.int64)    # T_i^max
+        self.c_fail_i = self.cfg.c_fail + (self.cfg.c_fail_mode == "lexi") * \
+            self.cfg.mu * self.radio.m_max * self.Hdl                            # per-UAV failure cost
         self.t = np.zeros(E, np.int64)
         self.arrived = np.zeros((E, N), bool)
         self.failed = np.zeros((E, N), bool)
@@ -333,7 +335,7 @@ class LAWNEnv:
         cost = act * (1.0 / self.Tmin + cfg.mu * g)                              # Eq. (21), third branch
         failing = act & ~arrived_now & (self.t[:, None] >= self.Hdl)
         dist_new = np.linalg.norm(self.pos - self.dest, axis=-1)
-        cost = cost + failing * (cfg.c_fail + cfg.w_fail_dist * dist_new)        # Eq. (21), second branch
+        cost = cost + failing * (self.c_fail_i + cfg.w_fail_dist * dist_new)     # Eq. (21), second branch
 
         ups_old = -cfg.w_nav * dist_old * (t_old[:, None] < self.Hdl)
         ups_new = -cfg.w_nav * dist_new * (self.t[:, None] < self.Hdl)

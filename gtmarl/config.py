@@ -67,6 +67,8 @@ class EnvConfig:
 
     # ---- Cost / reward (Eqs. (14), (21), (25)) ----------------------------------
     mu: float = 4.5             # penalty weight, 3 * eta (Remark 1)
+    c_fail_mode: str = "const"  # "const": c_fail | "lexi": c_fail + mu * beta^(L) * T_i^max, which exceeds
+                                # the largest penalty any on-time trajectory can accrue (deadline first)
     c_fail: float = 100.0      # must exceed the penalty a UAV can accumulate (mu * beta per slot)
     w_fail_dist: float = 0.0    # graded failure cost c_fail + w ||q_i - d_i||; 0 = v22 Eq. (21) (pilot: no effect at N = 30)
     w_nav: float = 0.05         # shaping weight (0 = ablation without shaping)
