@@ -83,9 +83,11 @@ def test_exact_potential(env):
     assert checked > 0
 
 
-def test_shaping_telescopes():
-    """Eq. (24): sum_t r_nav = rho_nav * ||q_i^0 - d_i|| for every UAV."""
-    e = LAWNEnv(EnvConfig(N=10), n_envs=3, seed=3)
+@pytest.mark.parametrize("kw", [{}, {"w_nav": 0.3, "w_fail_dist": 0.5, "eta": 1.0}])
+def test_shaping_telescopes(kw):
+    """Prop. 3(i): sum_t (r_i + c_i) = w_nav ||q_i^0 - d_i|| for every UAV, including failed
+    missions (eta = 1 forces failures) and w_nav != w_fail."""
+    e = LAWNEnv(EnvConfig(N=10, **kw), n_envs=3, seed=3)
     rng = np.random.default_rng(3)
     o = e.reset()
     d0 = np.linalg.norm(e.pos - e.dest, axis=-1)
@@ -95,6 +97,40 @@ def test_shaping_telescopes():
         tot_r += o["reward"]; tot_c += o["cost"]
     nav = tot_r + tot_c
     assert np.allclose(nav, e.cfg.w_nav * d0, atol=1e-4)
+    if kw:
+        assert e.failed.any()
+
+
+def test_shaped_exact_potential(env):
+    """Prop. 3(ii): a unilateral deviation changes the shaped cost -r_i and
+    phi_tilde = phi - sum_j Upsilon_j(x') by the same amount."""
+    rng = np.random.default_rng(5)
+    o = env.reset()
+    for _ in range(10):
+        o = env.step(_random_admissible(o["mask"], rng))
+    mask = o["mask"]
+    base = _random_admissible(mask, rng)
+    saved = (env.pos.copy(), env.t.copy(), env.arrived.copy(), env.failed.copy())
+    w = env.cfg.w_nav
+    checked = 0
+    for e in range(env.E):
+        for i in range(env.N):
+            if not env.active[e, i]:
+                continue
+            for a2 in np.flatnonzero(mask[e, i])[:3]:
+                vals = []
+                for dev in (False, True):
+                    acts = base.copy()
+                    if dev:
+                        acts[e, i] = a2
+                    env.pos, env.t, env.arrived, env.failed = (x.copy() for x in saved)
+                    out = env.step(acts)
+                    ups = -w * np.linalg.norm(env.pos[e] - env.dest[e], axis=-1) * (env.t[e] < env.Hdl[e])
+                    vals.append((-out["reward"][e, i], env.potential()[e] - ups.sum()))
+                (c1, p1), (c2, p2) = vals
+                assert abs((c1 - c2) - (p1 - p2)) < 1e-4
+                checked += 1
+    assert checked > 0
 
 
 def test_awgn_runs():

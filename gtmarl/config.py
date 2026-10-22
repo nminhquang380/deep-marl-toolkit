@@ -70,9 +70,10 @@ class EnvConfig:
     c_fail_mode: str = "const"  # "const": c_fail | "lexi": c_fail + mu * beta^(L) * T_i^max, which exceeds
                                 # the largest penalty any on-time trajectory can accrue (deadline first)
     c_fail: float = 100.0      # must exceed the penalty a UAV can accumulate (mu * beta per slot)
-    w_fail_dist: float = -1.0   # graded failure cost c_fail + w ||q_i - d_i||; -1 ties w to w_nav, which is
-                                # identical to the shaping of Eq. (25) without the reset at the deadline
-    w_nav: float = 0.5          # shaping weight (0 = ablation without shaping)
+    w_fail_dist: float = 0.5    # w_fail of Eq. (21): graded failure cost c_fail + w_fail ||q_i - d_i|| (part of
+                                # the game G); -1 ties it to w_nav (legacy). 0 = constant c_fail (old v22 Eq. (21))
+    w_nav: float = 0.5          # shaping weight of Eq. (25), a learning hyperparameter that leaves the Nash
+                                # policies unchanged (Prop. 3); 0 = ablation without shaping, game cost unchanged
     penalty: str = "marginal"   # "marginal" g_i of Eq. (14) | "lost" beta_i - kappa_i |
                                 # "indicator" 1[R_i < R_min] | "shortfall" [R_min - R_i]^+ / R_min
     ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)

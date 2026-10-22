@@ -37,7 +37,7 @@ for s in $S3; do
   echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag nopos    --env ablate=own_pos"  >> "$J"
   echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag noshape  --env w_nav=0"         >> "$J"
   echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag lostpen  --env penalty=lost"    >> "$J"
-  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag graded   --env w_fail_dist=0.5" >> "$J"
+  echo "$PY --iters $IA --algo $PA --seed $s --out $OUT/abl --tag nograde  --env w_fail_dist=0"   >> "$J"
   if [ "$PA" = gippo_msg ]; then echo "$PY --iters $IA --algo gippo --seed $s --out $OUT/abl --tag rawmean" >> "$J"; fi
 done
 

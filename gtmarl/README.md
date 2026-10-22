@@ -40,7 +40,7 @@ CPU is the default and faster for these networks; one thread per process.
 | V-C | SP, MBR, IPPO-MLP, CTDE-MAPPO, proposed | `main/` (5 seeds) | `table_main.tex` |
 | V-D | N = 10..60, B ∈ {4, 9}; retrained and N = 30 policy without retraining; inference time | `scal/` | `fig_scalability.pdf`, `inference_time.csv` |
 | V-E | L ∈ {1, 2, 3, 4}; μ ∈ {1, 2, 3, 6}·η | `quant/`, `mu/` | `fig_quant_mu.pdf` |
-| V-F | w/o co-cell, w/o β_j, w/o q_i, w/o shaping, penalty β_i − κ_i, constant c_fail | `abl/` | `table_ablation.tex` |
+| V-F | w/o co-cell, w/o β_j, w/o q_i, w/o shaping (w_nav = 0, game unchanged), penalty β_i − κ_i, constant c_fail (w_fail = 0) | `abl/` | `table_ablation.tex` |
 | V-G | SP vs proposed trajectories + cell utilisation | (main) | `fig_trajectories.pdf` |
 
 ## Default setting (Table I)
@@ -56,7 +56,7 @@ Values marked † are not fixed by v22 and were chosen here; please confirm.
 | Levels / bearers† | L = 3: γ̄ = 25.6 / 17.1 / 10.0 dB → β = 2 / 3 / 5 RBs at R_min = 6 Mb/s (thresholds = inverse ergodic rate + 0.1 dB); presets for L = 1, 2, 4 in `config.py` |
 | UAVs / origins | N = 30, three depots† at GBS 1-3 (radius 7 voxels, two lowest layers), destinations uniform, min. O-D distance 12 voxels† |
 | Mobility† | v_max = 1 voxel/slot, d_safe = 1, d_comm = 4 voxels, η = 1.5 |
-| Cost | μ = 3η = 4.5, c_fail = 100†, w_nav = 0.05† (constant c_fail as in Eq. (21); graded variant only as ablation) |
+| Cost | μ = 4.5, c_fail = 100†, w_fail = 0.5† (graded failure cost, Eq. (21)); shaping w_nav = 0.5† (Eq. (25), with reset; Prop. 3) |
 | PPO† | 32 episodes/iter, 1500 iters (1000 for V-D...V-F), lr 3e-4, clip 0.2, λ = 0.95, 5 epochs × 4 minibatches, entropy 0.01 → 0.001, 128-unit MLPs, d_e = 64, k = 4 for IPPO-MLP |
 
 Episodes satisfy the route condition of Sec. II-A (initial and final configurations
@@ -72,10 +72,12 @@ episodes meeting it is reported as `route_ok`.
 
 ## Deviations from v22 to discuss
 
-1. **Graded failure cost (now off by default).** In an early, sparser setting a single UAV did not
-   learn to arrive with a constant c_fail. In the v22 setting the pilot shows no difference
-   (MSR 0.993 with and without), so Eq. (21) is kept as written; `w_fail_dist` remains as an
-   ablation (`graded` in V-F).
+1. **Graded failure cost (on by default, `w_fail_dist` = 0.5).** With a constant c_fail and the
+   deadline reset of the shaping, all failed trajectories have the same return, so a UAV that
+   never arrives gets no learning signal (N = 1: MSR 0 with w_fail = 0, 0.95-0.98 with 0.5).
+   Eq. (21) now reads c_fail + w_fail ||q_i - d_i||. `w_fail` is part of the game; `w_nav` is a
+   learning hyperparameter, and Prop. 3 (checked in `tests/`) shows the shaped reward has the same
+   Nash policies and an exact stage potential. The V-F row `nograde` sets w_fail = 0.
 2. **Scale of c_fail.** One violating slot costs up to μβ = 4.5 × 5 ≈ 22, so with c_fail = 10 a UAV
    prefers to miss its deadline rather than cross a congested cell (an idle swarm scores a lower
    J than SP). c_fail = 100 restores the intended ordering.

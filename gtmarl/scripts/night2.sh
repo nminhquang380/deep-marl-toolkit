@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Overnight run 2 (~6 h on ~19 cores). Default: N = 40, R_min = 6 Mb/s, loose deadline eta = 3,
-# w_nav = 0.5 (failure cost graded by the remaining distance, i.e. shaping without reset).
+# w_fail = w_nav = 0.5 (graded failure cost of Eq. (21); shaping of Eq. (25) with reset, Prop. 3).
 #   Stage 1 (parallel training)
 #     main    : gippo x3, ippo_mlp x3 at eta = 3                -> V-C, CDF of T_i/T_i^min
 #     etachk  : gippo trained at eta = 1.2, 1.5, 2.0            -> does MSR(eta') match the CDF?
