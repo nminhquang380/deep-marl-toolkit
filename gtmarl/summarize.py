@@ -13,7 +13,8 @@ from collections import defaultdict
 
 import numpy as np
 
-COLS = ("success", "detour", "p_out", "viol", "jain_load", "J", "nbr_mean", "nbr_gt_k")
+COLS = ("success", "detour", "p_out", "viol", "jain_load", "J", "nbr_mean", "nbr_gt_k",
+        "F@1.2", "F@1.5", "F@2.0")
 
 
 def main(argv=None):

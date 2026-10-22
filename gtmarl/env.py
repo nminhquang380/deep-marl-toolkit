@@ -20,6 +20,7 @@ import numpy as np
 
 from .config import EnvConfig
 
+CDF_GRID = np.round(np.arange(1.0, 3.01, 0.1), 1)   # eta' grid for MSR(eta') = F(eta')
 OWN_DIM = 12
 NBR_DIM = 6
 GRAPH_DIM = NBR_DIM + 1
@@ -335,7 +336,8 @@ class LAWNEnv:
         cost = act * (1.0 / self.Tmin + cfg.mu * g)                              # Eq. (21), third branch
         failing = act & ~arrived_now & (self.t[:, None] >= self.Hdl)
         dist_new = np.linalg.norm(self.pos - self.dest, axis=-1)
-        cost = cost + failing * (self.c_fail_i + cfg.w_fail_dist * dist_new)     # Eq. (21), second branch
+        w_fail = cfg.w_nav if cfg.w_fail_dist < 0 else cfg.w_fail_dist
+        cost = cost + failing * (self.c_fail_i + w_fail * dist_new)              # Eq. (21), second branch
 
         ups_old = -cfg.w_nav * dist_old * (t_old[:, None] < self.Hdl)
         ups_new = -cfg.w_nav * dist_new * (self.t[:, None] < self.Hdl)
@@ -436,7 +438,10 @@ class LAWNEnv:
         jain_u = util.sum(1) ** 2 / (self.N * (util ** 2).sum(1) + 1e-12)
         act = np.maximum(self.stat_active_slots, 1)
         slots = np.maximum(self.stat_slots, 1)
+        ratio = np.where(succ, T / self.Tmin, np.inf)          # T_i / T_i^min, inf if missed
+        cdf = {f"F@{x:.1f}": float((ratio <= x + 1e-9).mean()) for x in CDF_GRID}
         return {
+            **cdf,
             "success": float(succ.mean()),                       # MSR
             "detour": float(detour.mean()) if detour.size else float("nan"),
             "p_out": float(self.stat_out.sum() / act.sum()),     # outage probability

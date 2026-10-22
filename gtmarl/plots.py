@@ -33,7 +33,7 @@ plt.rcParams.update({
 })
 COL = 3.5     # IEEE single column [in]
 DCOL = 7.16   # double column [in]
-LABEL = {"gippo": "Proposed", "gippo_tr": "Proposed (trained at $N=30$)", "ippo_mlp": "IPPO-MLP",
+LABEL = {"gippo": "Proposed", "gippo_tr": "Proposed (no retraining)", "ippo_mlp": "IPPO-MLP",
          "mappo": "CTDE-MAPPO", "greedy": "SP", "myopic": "MBR"}
 STYLE = {"gippo": ("C3", "o", "-"), "gippo_tr": ("C3", "o", "--"), "ippo_mlp": ("C0", "s", "-"),
          "mappo": ("C2", "^", "-."), "greedy": ("C7", "x", ":"), "myopic": ("C1", "d", ":")}
@@ -93,8 +93,8 @@ def br_results(res):
 # ------------------------------------------------------------------ V-B
 def fig_convergence(root, res, out):
     curves = defaultdict(list)
-    for d in sorted(glob.glob(os.path.join(root, "main", "*_N30_M4_s*"))):
-        algo = canon(os.path.basename(d).split("_N30")[0])
+    for d in sorted(glob.glob(os.path.join(root, "main", "*_M4_s[0-9]"))):
+        algo = canon(os.path.basename(d).split("_N")[0])
         rows = rd(os.path.join(d, "progress.csv"))
         if rows:
             curves[algo].append({k: np.array([fnum(r.get(k)) for r in rows]) for k in
@@ -299,6 +299,46 @@ def fig_traj(res, out):
     fig.savefig(os.path.join(out, "fig_trajectories.pdf")); plt.close(fig)
 
 
+# ------------------------------------------------------------------ V-E (CDF)
+def fig_cdf(res, out):
+    """CDF of T_i / T_i^min under the loose deadline (eta = 3) vs MSR of policies trained at eta'."""
+    rows = rd(os.path.join(res, "main.csv"))
+    if not rows or "F@1.0" not in rows[0]:
+        return
+    xs = sorted(float(k[2:]) for k in rows[0] if k.startswith("F@"))
+    g = defaultdict(list)
+    for r in rows:
+        if not r.get("tag"):
+            g[r["method"]].append(r)
+    fig, ax = plt.subplots(figsize=(COL, 2.2))
+    for m in ("gippo", "ippo_mlp", "mappo", "myopic", "greedy"):
+        if m not in g:
+            continue
+        c, mk, ls = STYLE[m]
+        F = np.array([[fnum(r[f"F@{x:.1f}"]) for x in xs] for r in g[m]])
+        ax.plot(xs, F.mean(0), color=c, ls=ls, label=LABEL[m] + r" ($\eta=3$)")
+        if len(F) > 1:
+            ax.fill_between(xs, F.min(0), F.max(0), color=c, alpha=0.12, lw=0)
+    # policies / benchmarks evaluated with a tighter deadline eta'
+    pts = defaultdict(list)
+    for f in glob.glob(os.path.join(res, "eta*.csv")):
+        for r in rd(f):
+            pts[r["method"]].append((float(r.get("eta_eval") or r.get("eta") or "nan"), fnum(r["success"])))
+    for m, v in pts.items():
+        if m not in STYLE:
+            continue
+        c, mk, _ = STYLE[m]
+        v = sorted(v)
+        ax.plot([a for a, _ in v], [b for _, b in v], ls="none", marker=mk, color=c, mfc="none", ms=6,
+                label=LABEL[m] + r" (trained/run at $\eta'$)")
+    ax.set_xlabel(r"Completion-time ratio $T_i/T_i^{\min}$ (deadline tolerance $\eta'$)")
+    ax.set_ylabel(r"$\Pr[T_i \leq \eta' T_i^{\min}]$")
+    ax.set_xlim(1.0, 3.0); ax.set_ylim(0, 1.01)
+    ax.legend(loc="lower right", fontsize=6)
+    fig.tight_layout()
+    fig.savefig(os.path.join(out, "fig_cdf.pdf")); plt.close(fig)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--runs", required=True)
@@ -316,6 +356,7 @@ def main(argv=None):
     fig_quant_mu(res, out)
     table_ablation(res, out)
     fig_traj(res, out)
+    fig_cdf(res, out)
     print("figures/tables in", out, ":", sorted(os.listdir(out)))
 
 

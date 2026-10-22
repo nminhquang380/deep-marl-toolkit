@@ -55,7 +55,7 @@ def save_traj(env: LAWNEnv, path: str):
 
 
 def setting(ec: EnvConfig) -> Dict:
-    return {"L": ec.L, "mu": ec.mu, "penalty": ec.penalty, "w_nav": ec.w_nav,
+    return {"L": ec.L, "mu": ec.mu, "eta_eval": ec.eta, "penalty": ec.penalty, "w_nav": ec.w_nav,
             "w_fail_dist": ec.w_fail_dist, "ablate": "+".join(ec.ablate)}
 
 

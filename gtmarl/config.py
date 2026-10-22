@@ -56,7 +56,7 @@ class EnvConfig:
     v_max: int = 1
     d_safe: float = 1.0
     d_comm: float = 4.0         # must satisfy d_comm >= d_safe + 2 v_max
-    eta: float = 1.5
+    eta: float = 3.0            # loose deadline; MSR(eta') is read from the CDF of T_i / T_i^min
     min_od_l1: int = 12         # minimum origin-destination L1 distance [voxels]
 
     # ---- Origins: depots (Sec. V-A) -------------------------------------------
@@ -70,8 +70,9 @@ class EnvConfig:
     c_fail_mode: str = "const"  # "const": c_fail | "lexi": c_fail + mu * beta^(L) * T_i^max, which exceeds
                                 # the largest penalty any on-time trajectory can accrue (deadline first)
     c_fail: float = 100.0      # must exceed the penalty a UAV can accumulate (mu * beta per slot)
-    w_fail_dist: float = 0.0    # graded failure cost c_fail + w ||q_i - d_i||; 0 = v22 Eq. (21) (pilot: no effect at N = 30)
-    w_nav: float = 0.05         # shaping weight (0 = ablation without shaping)
+    w_fail_dist: float = -1.0   # graded failure cost c_fail + w ||q_i - d_i||; -1 ties w to w_nav, which is
+                                # identical to the shaping of Eq. (25) without the reset at the deadline
+    w_nav: float = 0.5          # shaping weight (0 = ablation without shaping)
     penalty: str = "marginal"   # "marginal" g_i of Eq. (14) | "lost" beta_i - kappa_i |
                                 # "indicator" 1[R_i < R_min] | "shortfall" [R_min - R_i]^+ / R_min
     ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)
