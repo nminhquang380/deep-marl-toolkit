@@ -74,8 +74,9 @@ def _t(x, device, dtype=torch.float32):
 
 @torch.no_grad()
 def rollout(env: LAWNEnv, model: ActorCritic, device, opponent: Optional[ActorCritic] = None,
-            learner_agents: Optional[np.ndarray] = None, deterministic: bool = False) -> Dict:
-    """Run E episodes to completion.
+            learner_agents: Optional[np.ndarray] = None, deterministic: bool = False,
+            with_value: bool = True) -> Dict:
+    """Run E episodes to completion (with_value=False for evaluation: actor only).
 
     If ``opponent`` is given, agents not in ``learner_agents`` act with the frozen
     opponent policy (used for the best-response gap).
@@ -95,17 +96,17 @@ def rollout(env: LAWNEnv, model: ActorCritic, device, opponent: Optional[ActorCr
         obs_t = _t(flat(o["obs"])[rows], device)
         mask_t = _t(flat(o["mask"])[rows], device, torch.bool)
         state_t = _t(o["state"][rows // N], device)
-        d, v_n, _ = model.forward_all(obs_t, mask_t, state_t)
+        d, v_n, _ = model.forward_all(obs_t, mask_t, state_t, with_value=with_value)
         a_r = d.probs.argmax(-1) if deterministic else d.sample()
         if opponent is not None:
-            d_op, _, _ = opponent.forward_all(obs_t, mask_t, state_t)
+            d_op, _, _ = opponent.forward_all(obs_t, mask_t, state_t, with_value=False)
             a_op = d_op.probs.argmax(-1) if deterministic else d_op.sample()
             a_r = torch.where(_t(lmask[rows % N], device, torch.bool), a_r, a_op)
         logp_r = d.log_prob(a_r)
         a_full = np.zeros(E * N, np.int64); a_full[rows] = a_r.cpu().numpy()
         lp_full = np.zeros(E * N, np.float32); lp_full[rows] = logp_r.cpu().numpy()
         v_full = np.zeros(E * N, np.float32); v_full[rows] = model.vnorm.denormalize(v_n).cpu().numpy()
-        if model.central:   # team critics need V(s, o_i) of every UAV of a live episode (cheap: no encoder)
+        if model.central and with_value:   # team critics need V(s, o_i) of every UAV of a live episode (cheap: no encoder)
             rv = np.nonzero(np.repeat(~env.done, N))[0]
             v_full[rv] = model.vnorm.denormalize(model.value(_t(flat(o["obs"])[rv], device),
                                                              _t(o["state"][rv // N], device))).cpu().numpy()
@@ -260,7 +261,7 @@ class PPOTrainer:
 @torch.no_grad()
 def evaluate_model(env: LAWNEnv, model: ActorCritic, device, n_episodes: int,
                    deterministic: bool = False) -> Dict[str, float]:
-    return _avg([rollout(env, model, device, deterministic=deterministic)["metrics"]
+    return _avg([rollout(env, model, device, deterministic=deterministic, with_value=False)["metrics"]
                  for _ in range(max(1, n_episodes // env.E))])
 
 

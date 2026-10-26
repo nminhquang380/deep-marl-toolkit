@@ -188,10 +188,13 @@ class ActorCritic(nn.Module):
     def predict_demand(self, obs: torch.Tensor) -> torch.Tensor:
         return self.aux_head(self._z(obs))
 
-    def forward_all(self, obs: torch.Tensor, mask: torch.Tensor, state: torch.Tensor = None):
+    def forward_all(self, obs: torch.Tensor, mask: torch.Tensor, state: torch.Tensor = None,
+                    with_value: bool = True):
         """Policy, normalised value and z from a single pass of the encoder."""
         z = self._z(obs)
         d = torch.distributions.Categorical(logits=self.actor(z).masked_fill(~mask, -1e9))
+        if not with_value:                 # execution: the critic is not used (and a centralised
+            return d, torch.zeros(obs.shape[:-1]), z   # critic is tied to the training N)
         if self.central:
             st = state if state.dim() == obs.dim() else \
                 state.unsqueeze(-2).expand(*obs.shape[:-1], state.shape[-1])

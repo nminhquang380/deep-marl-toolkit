@@ -45,7 +45,8 @@ def agent0_costs(ec, learner, opponent, n_episodes, n_envs, seed):
     env = LAWNEnv(ec, n_envs=n_envs, seed=seed)
     costs, succ = [], []
     for _ in range(max(1, n_episodes // n_envs)):
-        rollout(env, learner, torch.device("cpu"), opponent=opponent, learner_agents=np.array([0]))
+        rollout(env, learner, torch.device("cpu"), opponent=opponent, learner_agents=np.array([0]),
+                with_value=False)
         costs.append(env.stat_cost[:, 0].copy())
         succ.append(env.arrived[:, 0].copy())
     return np.concatenate(costs), np.concatenate(succ)

@@ -57,9 +57,6 @@ log "stage 1 done"
 grep -l -E "Traceback|Error" $L/main_*.log $L/mappo_*.log 2>/dev/null | sed 's/^/FAILED: /' | tee -a "$L/night.log"
 
 EV="nice -n 10 python -m gtmarl.evaluate --episodes $EV_EP"
-$EV --runs "$OUT/main/*" --heuristics greedy myopic --N 20 40 60 80 --out $R/main.csv > $L/ev_main.log 2>&1 &
-[ -d "$N2/dcomm8" ] && $EV --runs "$N2/dcomm8/*" --heuristics greedy myopic --env eta=3 \
-    --N 20 40 60 80 --out $R/transfer_night2_dc8.csv > $L/ev_n2.log 2>&1 &
 $EV --runs "$OUT/mappo/*" "$N2/main/gippo_N40_M4_s0" "$N2/main/gippo_N40_M4_s1" --heuristics greedy myopic \
     --env obs_version=1 eta=3 d_comm=4 --out $R/mappo.csv > $L/ev_mappo.log 2>&1 &
 BR="nice -n 10 python -m gtmarl.br_gap --val_episodes $BR_VAL --eval_episodes $BR_TEST --iters $BR_IT --n_snap 4"
@@ -75,5 +72,4 @@ br $OUT/main/egat_cc_N40_M4_s0 0 egat_cc_s0 $TH_G
 br $OUT/main/ippo_mlp_N40_M4_s0 0 ippo_mlp_s0 1
 wait
 log "stage 2 done"
-python -m gtmarl.summarize --res $R | tee $OUT/summary.txt
-python -m gtmarl.gate --res $R --proposed egat | tee -a $OUT/summary.txt
+bash "$(dirname "${BASH_SOURCE[0]}")/night3_post.sh" "$OUT" "$N2"   # main + transfer evaluation, summary, gate

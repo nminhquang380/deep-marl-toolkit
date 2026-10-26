@@ -28,6 +28,7 @@ import torch
 from .config import EnvConfig, TrainConfig, apply_overrides, from_dict
 from .env import LAWNEnv
 import time
+import traceback
 
 from .heuristics import POLICIES, escape_deadlock, run_heuristic
 from .ppo import build_model, evaluate_model, rollout, spec
@@ -104,58 +105,75 @@ def main(argv=None):
     for r in a.runs:
         runs += sorted(glob.glob(r)) if any(c in r for c in "*?[") else [r]
     rows: List[Dict] = []
+    failed: List[str] = []
+
+    def flush():
+        """Write every row gathered so far, so a later failure loses nothing."""
+        if not (a.out and rows):
+            return
+        os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
+        fields = list(dict.fromkeys(k for r in rows for k in r))
+        with open(a.out, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(rows)
+
+    def emit(row):
+        rows.append(row)
+        print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items() if k != "run"},
+              flush=True)
+        flush()
 
     for run in runs:
         if not os.path.exists(os.path.join(run, a.ckpt)):
             print(f"WARNING: skipping {run} (no {a.ckpt}; run failed or unfinished)", flush=True)
             continue
-        ec0, tc, model = load_run(run, a.ckpt)
+        try:
+            ec0, tc, model = load_run(run, a.ckpt)
+        except Exception:
+            traceback.print_exc(); failed.append(run); continue
         for N in (a.N or [ec0.N]):
             if spec(tc.algo)["team"] and N != ec0.N:
-                continue                           # centralised critic is tied to N (actor is not,
-                                                   # but MAPPO is retrained per N for fairness)
-            ec = apply_overrides(from_dict(EnvConfig, vars(ec0)), a.env)
-            ec.N = N
-            env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
-            if a.traj:
-                env1 = LAWNEnv(ec, n_envs=1, seed=a.seed)
-                rollout(env1, model, torch.device("cpu"), deterministic=a.deterministic)
-                save_traj(env1, a.traj)
-                print("saved", a.traj)
-                a.traj = None
-            m = evaluate_model(env, model, torch.device("cpu"), a.episodes, a.deterministic)
-            m["infer_us"] = inference_us_per_uav(LAWNEnv(ec, n_envs=1, seed=a.seed), model)
-            row = {"method": tc.algo, "tag": tc.tag, "seed": tc.seed, "N_train": ec0.N, "N": N,
-                   "M": ec.M, "K": env.K, **setting(ec), "run": run, **m}
-            rows.append(row)
-            print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items() if k != "run"},
-                  flush=True)
+                continue                           # MAPPO is retrained per N for fairness
+            try:
+                ec = apply_overrides(from_dict(EnvConfig, vars(ec0)), a.env)
+                ec.N = N
+                env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
+                if a.traj:
+                    env1 = LAWNEnv(ec, n_envs=1, seed=a.seed)
+                    rollout(env1, model, torch.device("cpu"), deterministic=a.deterministic,
+                            with_value=False)
+                    save_traj(env1, a.traj)
+                    print("saved", a.traj)
+                    a.traj = None
+                m = evaluate_model(env, model, torch.device("cpu"), a.episodes, a.deterministic)
+                m["infer_us"] = inference_us_per_uav(LAWNEnv(ec, n_envs=1, seed=a.seed), model)
+            except Exception:
+                traceback.print_exc(); failed.append(f"{run} N={N}"); continue
+            emit({"method": tc.algo, "tag": tc.tag, "seed": tc.seed, "N_train": ec0.N, "N": N,
+                  "M": ec.M, "K": env.K, **setting(ec), "run": run, **m})
 
     for h in a.heuristics:
         for N in (a.N or [EnvConfig().N]):
-            ec = apply_overrides(EnvConfig(), a.env)
-            ec.N = N
-            if a.traj:
-                heuristic_traj(ec, h, a.seed, a.traj)
-                print("saved", a.traj)
-                a.traj = None
-            env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
-            m = run_heuristic(env, h, a.episodes, seed=a.seed)
-            m["infer_us"] = float("nan")
-            row = {"method": h, "tag": "", "seed": 0, "N_train": 0, "N": N, "M": ec.M, "K": env.K,
-                   **setting(ec), "run": "", **m}
-            rows.append(row)
-            print({k: (round(v, 4) if isinstance(v, float) else v) for k, v in row.items() if k != "run"},
-                  flush=True)
+            try:
+                ec = apply_overrides(EnvConfig(), a.env)
+                ec.N = N
+                if a.traj:
+                    heuristic_traj(ec, h, a.seed, a.traj)
+                    print("saved", a.traj)
+                    a.traj = None
+                env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
+                m = run_heuristic(env, h, a.episodes, seed=a.seed)
+                m["infer_us"] = float("nan")
+            except Exception:
+                traceback.print_exc(); failed.append(f"{h} N={N}"); continue
+            emit({"method": h, "tag": "", "seed": 0, "N_train": 0, "N": N, "M": ec.M, "K": env.K,
+                  **setting(ec), "run": "", **m})
 
-    if a.out and rows:
-        os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
-        with open(a.out, "w", newline="") as f:
-            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(rows)
+    if rows:
         print("wrote", a.out)
-
+    for f_ in failed:
+        print("FAILED:", f_, flush=True)
 
 if __name__ == "__main__":
     main()

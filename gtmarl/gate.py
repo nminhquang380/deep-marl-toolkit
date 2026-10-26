@@ -29,6 +29,8 @@ def main(argv=None):
                        ("success", "detour", "p_out", "jain_load", "social_cost", "J", "viol",
                         "nbr_mean", "nbr_gt_k")})
     m = {k: {kk: float(np.mean([x[kk] for x in v])) for kk in v[0]} for k, v in g.items()}
+    if not m:
+        print(f"gate: no rows with N = {a.N} in main.csv"); return
 
     print(f"{'method':10s} " + " ".join(f"{k:>9s}" for k in next(iter(m.values()))))
     for k, v in m.items():
