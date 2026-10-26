@@ -30,7 +30,7 @@ from .env import LAWNEnv
 import time
 
 from .heuristics import POLICIES, escape_deadlock, run_heuristic
-from .ppo import build_model, evaluate_model, rollout
+from .ppo import build_model, evaluate_model, rollout, spec
 
 
 def load_run(run: str, ckpt: str = "model_last.pt", device: str = "cpu"):
@@ -111,7 +111,7 @@ def main(argv=None):
             continue
         ec0, tc, model = load_run(run, a.ckpt)
         for N in (a.N or [ec0.N]):
-            if tc.algo == "mappo" and N != ec0.N:
+            if spec(tc.algo)["team"] and N != ec0.N:
                 continue                           # centralised critic is tied to N (actor is not,
                                                    # but MAPPO is retrained per N for fairness)
             ec = apply_overrides(from_dict(EnvConfig, vars(ec0)), a.env)

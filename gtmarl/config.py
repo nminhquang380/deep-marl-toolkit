@@ -55,8 +55,9 @@ class EnvConfig:
     # ---- Mobility (Eqs. (10)-(12), (19)) ---------------------------------------
     v_max: int = 1
     d_safe: float = 1.0
-    d_comm: float = 4.0         # must satisfy d_comm >= d_safe + 2 v_max
-    eta: float = 3.0            # loose deadline; MSR(eta') is read from the CDF of T_i / T_i^min
+    d_comm: float = 8.0         # U2U (Remote ID) range, 200 m; must satisfy d_comm >= d_safe + 2 v_max
+    eta: float = 1.5            # deadline tolerance T_i^max = eta T_i^min (learned policies depend on eta,
+                                # so V-E retrains per eta; the CDF of T_i / T_i^min is descriptive only)
     min_od_l1: int = 12         # minimum origin-destination L1 distance [voxels]
 
     # ---- Origins: depots (Sec. V-A) -------------------------------------------
@@ -79,6 +80,8 @@ class EnvConfig:
     ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)
     knn_k: int = 4              # neighbours of the IPPO-MLP benchmark
     nbr_cap: int = 8            # neighbours carried in the observation for message passing (|M_i| itself is uncapped)
+    obs_version: int = 2        # 2: beacons carry velocity and serving-GBS location (Remote ID), own velocity;
+                                # 1: legacy v22 observation (positions only); runs without the key load as 1
 
     # ---- Episode generation -------------------------------------------------
     init_check: str = "soft"    # "strict": initial and final configurations overload no cell (Sec. II-A);
@@ -119,6 +122,10 @@ class TrainConfig:
     out: str = "runs"
     tag: str = ""
     init_from: str = ""         # warm-start encoder + actor from a checkpoint (e.g. MAPPO from IPPO)
+    aux_coef: float = 0.5       # weight of the congestion-prediction loss (algos with aux=True)
+    critic_warmup: int = 0      # iterations with the actor frozen (value / aux losses only)
+    heads: int = 4              # attention heads of the EGAT encoder
+    gnn_layers: int = 2         # message-passing layers of the EGAT encoder
 
 
 def _coerce(value: str, target):
@@ -158,6 +165,8 @@ def to_dict(cfg) -> dict:
 def from_dict(cls, d: dict):
     names = {f.name for f in dataclasses.fields(cls)}
     obj = cls(**{k: v for k, v in d.items() if k in names})
+    if cls is EnvConfig and "obs_version" not in d:
+        obj.obs_version = 1                     # run trained before the beacon observation
     for k in ("snr_th_dB", "ablate"):
         if hasattr(obj, k) and isinstance(getattr(obj, k), list):
             setattr(obj, k, tuple(getattr(obj, k)))

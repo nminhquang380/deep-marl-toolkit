@@ -63,21 +63,22 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--train", nargs="*", default=[], help="TrainConfig overrides for the deviator")
     p.add_argument("--out", default=None)
+    p.add_argument("--threads", type=int, default=1)
     a = p.parse_args(argv)
-    torch.set_num_threads(1)
+    torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
 
     ec, tc0, policy = load_run(a.run, a.ckpt)
     # deviator: own critic (it minimises its own J_0), warm-started from the trained actor
-    learner = ActorCritic(ec.M, policy.actor[-1].out_features, tc0.hidden, tc0.emb_dim,
-                          nbr=policy.nbr, knn_k=policy.knn_k, state_dim=0, nbr_cap=policy.nbr_cap)
-    learner.encoder.load_state_dict(policy.encoder.state_dict())
-    if hasattr(policy, "phi"):
-        learner.phi.load_state_dict(policy.phi.state_dict())
-    learner.actor.load_state_dict(policy.actor.state_dict())
+    kw = dict(policy.kw, state_dim=0, obs_dim=0, aux=False)
+    learner = ActorCritic(**kw)
+    own_sd = learner.state_dict()
+    src = policy.state_dict()
+    shared = [k for k in own_sd if k.startswith(("encoder.", "actor.", "phi.", "gnn."))]
     if not policy.central:
-        learner.critic.load_state_dict(policy.critic.state_dict())
-        learner.vnorm.load_state_dict(policy.vnorm.state_dict())
+        shared += [k for k in own_sd if k.startswith(("critic.", "vnorm."))]
+    own_sd.update({k: src[k] for k in shared})
+    learner.load_state_dict(own_sd)
     opponent = copy.deepcopy(policy).eval()
 
     # fine-tuning defaults: one agent's samples per iteration -> smaller steps
@@ -86,8 +87,9 @@ def main(argv=None):
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
     tc.ent_coef = tc.ent_coef_final
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
-    algo = {"graph": "gippo", "graph_msg": "gippo_msg", "knn": "ippo_mlp", "none": "ippo"}[policy.nbr]
-    tr = PPOTrainer(algo, env, tc, model=learner, opponent=opponent, learner_agents=np.array([0]))
+    sp = {"nbr": policy.nbr, "central": False, "team": False, "aux": False}   # own reward, own critic
+    tr = PPOTrainer(tc0.algo, env, tc, model=learner, opponent=opponent, learner_agents=np.array([0]),
+                    sp=sp)
 
     # candidate 0 = the trained policy (no deviation)
     c0, _ = agent0_costs(ec, policy, opponent, a.val_episodes, a.n_envs, VAL_SEED)

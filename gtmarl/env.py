@@ -21,9 +21,10 @@ import numpy as np
 from .config import EnvConfig
 
 CDF_GRID = np.round(np.arange(1.0, 3.01, 0.1), 1)   # eta' grid for MSR(eta') = F(eta')
-OWN_DIM = 12
-NBR_DIM = 6
+OWN_DIM = 12            # legacy (obs_version 1) sizes; v2 adds own velocity (3) and, per neighbour,
+NBR_DIM = 6             # its velocity (3) and serving-GBS location (3)
 GRAPH_DIM = NBR_DIM + 1
+OWN_DIM_V2, NBR_DIM_V2 = OWN_DIM + 3, NBR_DIM + 6
 
 
 def action_set(v_max: int) -> np.ndarray:
@@ -143,8 +144,11 @@ class LAWNEnv:
         self.rng = np.random.default_rng(seed)
         self.k = cfg.knn_k
         self.cap = max(cfg.nbr_cap, cfg.knn_k)
-        self.obs_dim = OWN_DIM + GRAPH_DIM + NBR_DIM * self.cap + self.M
-        self.state_dim = 3 * self.N + 3 * self.N + self.N + self.N + self.M
+        self.v2 = cfg.obs_version >= 2
+        self.own_dim = OWN_DIM_V2 if self.v2 else OWN_DIM
+        self.nbr_dim = NBR_DIM_V2 if self.v2 else NBR_DIM
+        self.obs_dim = self.own_dim + (self.nbr_dim + 1) + self.nbr_dim * self.cap + self.M
+        self.state_dim = (9 if self.v2 else 6) * self.N + self.N + self.N + self.M
         self._all_vox = np.stack(np.meshgrid(np.arange(cfg.W), np.arange(cfg.R), np.arange(cfg.H),
                                              indexing="ij"), -1).reshape(-1, 3)
         self._origin_pool = self._make_origin_pool()
@@ -238,6 +242,7 @@ class LAWNEnv:
         for e in range(E):
             self.pos[e], self.dest[e], self.route_ok[e] = self._sample_episode()
         self.orig = self.pos.copy()
+        self.prev = self.pos.copy()                                             # q_i(t-1), velocity 0 at t = 0
         self.Tmin = np.ceil(np.abs(self.pos - self.dest).sum(-1) / self.cfg.v_max).astype(np.int64)
         self.Hdl = np.floor(self.cfg.eta * self.Tmin + 1e-9).astype(np.int64)    # T_i^max
         self.c_fail_i = self.cfg.c_fail + (self.cfg.c_fail_mode == "lexi") * \
@@ -327,6 +332,7 @@ class LAWNEnv:
         t_old = self.t.copy()
 
         dist_old = np.linalg.norm(self.pos - self.dest, axis=-1)
+        self.prev = self.pos.copy()
         self.pos = self.pos + self.acts[actions] * act[..., None]
         self.t = self.t + live_env.astype(np.int64)
         self._radio_update()                                                     # landing state x'
@@ -385,7 +391,8 @@ class LAWNEnv:
             (self.m_cur / self.radio.m_max)[..., None],
             (Db / self.K)[..., None],
             slack[..., None],
-        ], axis=-1)                                                              # Eq. (27)
+        ] + ([((self.pos - self.prev) / cfg.v_max).astype(np.float32)] if self.v2 else []),
+            axis=-1)                                                             # Eq. (27)
         if "own_pos" in cfg.ablate:
             own[..., 0:3] = 0.0
 
@@ -395,8 +402,12 @@ class LAWNEnv:
         nbr[:, np.arange(N), np.arange(N)] = False
         same = (self.b[:, :, None] == self.b[:, None, :]).astype(np.float32)
         mj = np.broadcast_to((self.m_cur / self.radio.m_max)[:, None, :], same.shape)
-        feat = np.concatenate([rel / cfg.d_comm, (dist / cfg.d_comm)[..., None],
-                               same[..., None], mj[..., None]], axis=-1)        # Eq. (28)
+        parts = [rel / cfg.d_comm, (dist / cfg.d_comm)[..., None], same[..., None], mj[..., None]]
+        if self.v2:   # beacon of j (Remote ID): velocity, and the serving GBS implied by its position
+            vel = ((self.pos - self.prev) / cfg.v_max).astype(np.float32)
+            gbr = (gb[:, None, :, :] - posf[:, :, None, :]) / self.dims_norm   # g_{b_j} - q_i
+            parts += [np.broadcast_to(vel[:, None], rel.shape), gbr]
+        feat = np.concatenate(parts, axis=-1).astype(np.float32)               # Eq. (28)
         if "cocell" in cfg.ablate:
             feat[..., 4] = 0.0
         if "beta_nbr" in cfg.ablate:
@@ -412,8 +423,8 @@ class LAWNEnv:
         valid = np.take_along_axis(nbr, order, axis=-1)
         knn = np.take_along_axis(feat, order[..., None], axis=2) * valid[..., None]
         if knn.shape[2] < k:
-            knn = np.concatenate([knn, np.zeros(knn.shape[:2] + (k - knn.shape[2], NBR_DIM), knn.dtype)], 2)
-        knn = knn.reshape(self.E, N, k * NBR_DIM)
+            knn = np.concatenate([knn, np.zeros(knn.shape[:2] + (k - knn.shape[2], self.nbr_dim), knn.dtype)], 2)
+        knn = knn.reshape(self.E, N, k * self.nbr_dim)
 
         dem = np.broadcast_to((self.D / self.K)[:, None, :], (self.E, N, self.M))
         obs = np.concatenate([own, mean, cnt / 8.0, knn, dem], axis=-1).astype(np.float32)
@@ -425,7 +436,10 @@ class LAWNEnv:
         posf = (self.pos / self.dims_norm).reshape(self.E, -1)
         dstf = (self.dest / self.dims_norm).reshape(self.E, -1)
         slack = (self.Hdl - self.t[:, None]).clip(min=0) / max(1, int(self.Hdl.max()))
-        return np.concatenate([posf, dstf, slack, self.active.astype(np.float64), self.D / self.K],
+        parts = [posf, dstf]
+        if self.v2:
+            parts.append(((self.pos - self.prev) / self.cfg.v_max).reshape(self.E, -1))
+        return np.concatenate(parts + [slack, self.active.astype(np.float64), self.D / self.K],
                               axis=1).astype(np.float32)
 
     # ----------------------------------------------------------- statistics

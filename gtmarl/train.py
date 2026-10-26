@@ -18,7 +18,7 @@ import torch
 
 from .config import EnvConfig, TrainConfig, apply_overrides, to_dict
 from .env import LAWNEnv
-from .ppo import PPOTrainer, evaluate_model
+from .ppo import ALGO_NAMES, PPOTrainer, evaluate_model
 
 
 def run_dir(tc: TrainConfig, ec: EnvConfig) -> str:
@@ -28,7 +28,7 @@ def run_dir(tc: TrainConfig, ec: EnvConfig) -> str:
 
 def main(argv=None):
     p = argparse.ArgumentParser()
-    p.add_argument("--algo", default="gippo", choices=["gippo", "gippo_msg", "ippo_mlp", "ippo", "mappo"])
+    p.add_argument("--algo", default="gippo", choices=ALGO_NAMES)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--iters", type=int, default=None)
     p.add_argument("--out", default=None)

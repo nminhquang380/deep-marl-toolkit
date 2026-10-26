@@ -140,3 +140,48 @@ def test_awgn_runs():
     while not e.done.all():
         o = e.step(_random_admissible(o["mask"], rng))
     assert np.isfinite(e.episode_metrics()["J"])
+
+
+def test_egat_permutation_invariant():
+    """EGAT ego embedding is invariant to the order of the neighbour slots."""
+    import torch
+    from gtmarl.config import TrainConfig
+    from gtmarl.ppo import build_model
+    e = LAWNEnv(EnvConfig(N=40), n_envs=2, seed=7)
+    rng = np.random.default_rng(7)
+    o = e.reset()
+    for _ in range(5):
+        o = e.step(_random_admissible(o["mask"], rng))
+    m = build_model("egat", e, TrainConfig())
+    obs = torch.as_tensor(o["obs"])
+    o0 = e.own_dim + e.nbr_dim + 1
+    blk = obs[..., o0:o0 + e.nbr_dim * e.cap].reshape(*obs.shape[:-1], e.cap, e.nbr_dim)
+    perm = torch.randperm(e.cap)
+    obs2 = obs.clone()
+    obs2[..., o0:o0 + e.nbr_dim * e.cap] = blk[..., perm, :].reshape(*obs.shape[:-1], -1)
+    with torch.no_grad():
+        assert torch.allclose(m._z(obs), m._z(obs2), atol=1e-5)
+    assert (e._nbr_cnt > 0).any()
+
+
+@pytest.mark.parametrize("algo", ["egat", "egat_aux", "egat_cc", "mappo_egat", "gippo", "gippo_msg",
+                                  "ippo_mlp", "ippo"])
+def test_algos_train_step(algo):
+    from gtmarl.config import TrainConfig
+    from gtmarl.ppo import PPOTrainer
+    e = LAWNEnv(EnvConfig(N=10), n_envs=2, seed=1)
+    tc = TrainConfig(n_envs=2, iters=2, epochs=1, minibatches=2, critic_warmup=1)
+    tr = PPOTrainer(algo, e, tc)
+    for _ in range(2):
+        st = tr.train_iter()
+    assert np.isfinite(st["loss/v_loss"])
+    if algo.endswith("aux"):
+        assert st["loss/aux_loss"] > 0
+
+
+def test_legacy_config_loads_v1():
+    from gtmarl.config import from_dict, to_dict
+    d = to_dict(EnvConfig())
+    d.pop("obs_version")
+    ec = from_dict(EnvConfig, d)
+    assert ec.obs_version == 1 and LAWNEnv(ec, n_envs=1).own_dim == 12

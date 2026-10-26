@@ -17,9 +17,11 @@ import numpy as np
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--res", required=True)
-    p.add_argument("--proposed", default="gippo", help="gippo | gippo_msg")
+    p.add_argument("--proposed", default="gippo", help="egat | gippo | ...")
+    p.add_argument("--N", default="40", help="swarm size of the comparison (transfer rows are ignored)")
     a = p.parse_args(argv)
-    rows = list(csv.DictReader(open(os.path.join(a.res, "main.csv"))))
+    rows = [r for r in csv.DictReader(open(os.path.join(a.res, "main.csv")))
+            if r["N"] == a.N and r.get("N_train", a.N) in ("", "0", a.N)]
     g = defaultdict(list)
     for r in rows:
         key = r["method"] + (f"_{r['tag']}" if r.get("tag") else "")
@@ -35,7 +37,7 @@ def main(argv=None):
     brs = defaultdict(list)
     for f in glob.glob(os.path.join(a.res, "br_*.json")):
         d = json.load(open(f))
-        brs[d["algo"]].append(d)
+        brs["mappo" if d["algo"].startswith("mappo") else d["algo"]].append(d)
     br = {k: float(np.mean([d["gap_rel"] for d in v])) for k, v in brs.items()}
     print()
     for k, v in brs.items():
@@ -54,7 +56,8 @@ def main(argv=None):
         ("C4 J < J of IPPO-MLP (graph helps)", P and "ippo_mlp" in m and P["J"] < m["ippo_mlp"]["J"]),
         ("C5 BR gap(proposed) < 5%", PR in br and br[PR] < 0.05),
         ("C6 BR gap(mappo) > BR gap(proposed), MAPPO competent", PR in br and "mappo" in br
-         and br["mappo"] > br[PR] and m.get("mappo", {}).get("success", 0) > 0.8),
+         and br["mappo"] > br[PR]
+         and np.mean([d["succ0_policy"] for d in brs["mappo"]]) > 0.8),
     ]
     print(f"\nproposed = {PR}")
     for name, ok in checks:

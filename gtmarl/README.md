@@ -43,6 +43,27 @@ CPU is the default and faster for these networks; one thread per process.
 | V-F | w/o co-cell, w/o β_j, w/o q_i, w/o shaping (w_nav = 0, game unchanged), penalty β_i − κ_i, constant c_fail (w_fail = 0) | `abl/` | `table_ablation.tex` |
 | V-G | SP vs proposed trajectories + cell utilisation | (main) | `fig_trajectories.pdf` |
 
+## Learners (Oct 2026, obs_version 2)
+
+All learners share the actor pi(a_i | o_i) and differ only in the neighbour encoder, the critic
+input and the reward used by the critic/advantage (`ppo.ALGOS`):
+
+| algo | neighbour encoder | critic | reward |
+|---|---|---|---|
+| `egat` (proposed) | 2-layer edge-featured graph attention over the local graph {i} U M_i (edges between neighbours too) | V(o_i) | own |
+| `egat_aux` | + congestion head predicting D_b(t+1)/K_b (training only) | V(o_i) | own |
+| `egat_cc` | as `egat` | agent-specific centralised V(x, o_i) | own (still non-cooperative) |
+| `gippo` | mean of raw beacon features (v22 Eq. (29)) | V(o_i) | own |
+| `gippo_msg` | message MLP, then mean (GraphSAGE-mean) | V(o_i) | own |
+| `ippo_mlp` | k = 4 nearest beacons, sorted by distance | V(o_i) | own |
+| `ippo` | none | V(o_i) | own |
+| `mappo_egat` / `mappo` | egat / mean | centralised V(x, o_i) | team (social cost) |
+
+Beacons (obs_version 2) carry position and velocity (Remote ID); the serving GBS of a neighbour
+follows from its position. Defaults: N = 40, eta = 1.5, d_comm = 8 voxels (200 m).
+Runs trained before this change load as obs_version 1. `bash gtmarl/scripts/night3.sh` runs the
+encoder diagnostics, the MAPPO fix (critic warm-up) and zero-shot transfer.
+
 ## Default setting (Table I)
 
 Values marked † are not fixed by v22 and were chosen here; please confirm.
