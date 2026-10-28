@@ -141,6 +141,8 @@ class LAWNEnv:
         self.dims = np.array([cfg.W, cfg.R, cfg.H])
         self.dims_norm = np.maximum(self.dims - 1, 1).astype(np.float32)
         self.sep_move = cfg.d_safe + cfg.v_max
+        self.mask_mode = cfg.sep_mode == "mask"
+        self.sep_init = self.sep_move if self.mask_mode else cfg.d_safe   # separation of the initial configuration
         self.rng = np.random.default_rng(seed)
         self.k = cfg.knn_k
         self.cap = max(cfg.nbr_cap, cfg.knn_k)
@@ -148,7 +150,8 @@ class LAWNEnv:
         self.own_dim = OWN_DIM_V2 if self.v2 else OWN_DIM
         self.nbr_dim = NBR_DIM_V2 if self.v2 else NBR_DIM
         self.obs_dim = self.own_dim + (self.nbr_dim + 1) + self.nbr_dim * self.cap + self.M
-        self.state_dim = (9 if self.v2 else 6) * self.N + self.N + self.N + self.M
+        self.state_N = max(cfg.state_N, self.N)
+        self.state_dim = (9 if self.v2 else 6) * self.state_N + 2 * self.state_N + self.M
         self._all_vox = np.stack(np.meshgrid(np.arange(cfg.W), np.arange(cfg.R), np.arange(cfg.H),
                                              indexing="ij"), -1).reshape(-1, 3)
         self._origin_pool = self._make_origin_pool()
@@ -160,9 +163,10 @@ class LAWNEnv:
         if cfg.origin_mode == "uniform":
             return [np.arange(len(V))]
         pools = []
+        radius = cfg.depot_radius * max(1.0, np.sqrt(self.N / 40.0))   # depots grow with the swarm (N > 40)
         for fx, fy in cfg.depots:
             c = np.array([fx * cfg.W - 0.5, fy * cfg.R - 0.5])
-            ok = (np.linalg.norm(V[:, :2] - c, axis=1) <= cfg.depot_radius) & (V[:, 2] < cfg.depot_layers)
+            ok = (np.linalg.norm(V[:, :2] - c, axis=1) <= radius) & (V[:, 2] < cfg.depot_layers)
             pools.append(np.flatnonzero(ok))
         return pools
 
@@ -172,7 +176,14 @@ class LAWNEnv:
         return not np.any(np.bincount(b, weights=m, minlength=self.M) > self.K)
 
     def _sample_origins(self):
-        N, V, sep = self.N, self._all_vox, self.sep_move
+        for _ in range(20):                    # random sequential packing may fail; retry before giving up
+            o = self._sample_origins_once()
+            if o is not None:
+                return o
+        raise RuntimeError("depot too small for N; increase depot_radius / depot_layers")
+
+    def _sample_origins_once(self):
+        N, V, sep = self.N, self._all_vox, self.sep_init
         n_pool = len(self._origin_pool)
         counts = np.full(n_pool, N // n_pool)
         counts[self.rng.permutation(n_pool)[: N % n_pool]] += 1
@@ -189,11 +200,11 @@ class LAWNEnv:
                     if got == c:
                         break
             if got < c:
-                raise RuntimeError("depot too small for N; increase depot_radius / depot_layers")
+                return None
         return np.asarray(orig)[self.rng.permutation(N)]
 
     def _sample_dests(self, orig):
-        cfg, N, V, sep = self.cfg, self.N, self._all_vox, self.sep_move
+        cfg, N, V, sep = self.cfg, self.N, self._all_vox, self.sep_init
         free = np.min(np.linalg.norm(V[:, None, :] - orig[None], axis=-1), axis=1) >= sep
         dest = []
         for i in range(N):
@@ -257,6 +268,8 @@ class LAWNEnv:
         self.stat_out = np.zeros((E, N))
         self.stat_active_slots = np.zeros((E, N))
         self.stat_rate_ratio = np.zeros((E, N))
+        self.stat_los = np.zeros((E, N))
+        self.stat_nmac = np.zeros((E, N))
         self.stat_load_jain = np.zeros(E)
         self.stat_overload = np.zeros(E)
         self.stat_potential = np.zeros(E)
@@ -272,6 +285,11 @@ class LAWNEnv:
         return ~(self.arrived | self.failed)
 
     @property
+    def present(self) -> np.ndarray:
+        """UAVs in the airspace: all of them, or only the active ones if inactive UAVs exit."""
+        return self.active if self.cfg.exit_inactive else np.ones((self.E, self.N), bool)
+
+    @property
     def done(self) -> np.ndarray:
         return ~self.active.any(axis=1)
 
@@ -282,7 +300,8 @@ class LAWNEnv:
         self.m_cur = self.radio.m[idx]
         self.rho_cur = self.radio.rho_vox[idx]
         self.D = np.zeros((self.E, self.M))
-        np.add.at(self.D, (np.repeat(np.arange(self.E), self.N), self.b.ravel()), self.m_cur.ravel())
+        w = (self.m_cur * self.present).ravel()                                   # exited UAVs release bearers
+        np.add.at(self.D, (np.repeat(np.arange(self.E), self.N), self.b.ravel()), w)
 
     def served_fraction(self) -> np.ndarray:
         """s_b of Eq. (8) for every UAV's cell, shape (E, N)."""
@@ -299,16 +318,34 @@ class LAWNEnv:
         if pen == "indicator":                                                   # 1[R_i < R_min] = 1[D_b > K_b]
             return (np.take_along_axis(self.D, self.b, axis=1) > self.K).astype(float)
         over = np.maximum(self.D - self.K, 0.0)                                  # Eq. (14)
-        return np.minimum(self.m_cur, np.take_along_axis(over, self.b, axis=1))
+        return np.minimum(self.m_cur, np.take_along_axis(over, self.b, axis=1)) * self.present
+
+    def separation(self) -> np.ndarray:
+        """Pairs (i, j) of UAVs in the airspace closer than d_safe, shape (E, N, N), bool."""
+        d = np.linalg.norm(self.pos[:, :, None, :] - self.pos[:, None, :, :], axis=-1)
+        pr = self.present
+        v = (d < self.cfg.d_safe - 1e-9) & pr[:, :, None] & pr[:, None, :]
+        v[:, np.arange(self.N), np.arange(self.N)] = False
+        return v
 
     def potential(self) -> np.ndarray:
-        """phi = mu * sum_b [D_b - K_b]^+, Eq. (24) (per env)."""
-        return self.cfg.mu * np.maximum(self.D - self.K, 0.0).sum(axis=1)
+        """phi = mu * sum_b [D_b - K_b]^+ (+ w_sep * #violating pairs), Prop. 1 (per env)."""
+        phi = self.cfg.mu * np.maximum(self.D - self.K, 0.0).sum(axis=1)
+        if not self.mask_mode:
+            phi = phi + self.cfg.w_sep * self.separation().sum(axis=(1, 2)) / 2
+        return phi
 
     def action_mask(self) -> np.ndarray:
         """Admissible set A_i(x), Eq. (19). Shape (E, N, A), bool."""
         land = self.pos[:, :, None, :] + self.acts[None, None]                   # (E,N,A,3)
         inb = np.all((land >= 0) & (land < self.dims), axis=-1)
+        if not self.mask_mode:                       # separation is priced, not enforced
+            mask = inb.copy()
+            mask[..., 0] = True
+            act = self.active
+            mask[~act] = False
+            mask[~act, 0] = True
+            return mask
         cur = np.linalg.norm(self.pos[:, :, None, :] - self.pos[:, None, :, :], axis=-1)  # (E,N,N)
         nbr = cur <= self.cfg.d_comm
         nbr[:, np.arange(self.N), np.arange(self.N)] = False
@@ -335,12 +372,20 @@ class LAWNEnv:
         self.prev = self.pos.copy()
         self.pos = self.pos + self.acts[actions] * act[..., None]
         self.t = self.t + live_env.astype(np.int64)
-        self._radio_update()                                                     # landing state x'
-
-        g = self.penalty()
         arrived_now = act & np.all(self.pos == self.dest, axis=-1)
-        cost = act * (1.0 / self.Tmin + cfg.mu * g)                              # Eq. (21), third branch
         failing = act & ~arrived_now & (self.t[:, None] >= self.Hdl)
+        self.T_arr[arrived_now] = self.t[np.nonzero(arrived_now)[0]]
+        self.arrived |= arrived_now
+        self.failed |= failing
+        self._radio_update()                                                     # landing state x' (UAVs that
+                                                                                 # just finished have exited)
+        g = self.penalty()
+        cost = act * (1.0 / self.Tmin + cfg.mu * g)                              # Eq. (21), third branch
+        n_sep = np.zeros_like(g)
+        if not self.mask_mode:
+            sep = self.separation()
+            n_sep = sep.sum(-1).astype(float)
+            cost = cost + act * cfg.w_sep * n_sep                                # separation cost (pairwise)
         dist_new = np.linalg.norm(self.pos - self.dest, axis=-1)
         w_fail = cfg.w_nav if cfg.w_fail_dist < 0 else cfg.w_fail_dist
         cost = cost + failing * (self.c_fail_i + w_fail * dist_new)              # Eq. (21), second branch
@@ -349,21 +394,23 @@ class LAWNEnv:
         ups_new = -cfg.w_nav * dist_new * (self.t[:, None] < self.Hdl)
         reward = -cost + act * (ups_new - ups_old)                               # Eqs. (25)-(26)
 
-        self.T_arr[arrived_now] = self.t[np.nonzero(arrived_now)[0]]
-        self.arrived |= arrived_now
-        self.failed |= failing
-
-        # statistics at the landing state (in-flight UAV-slots = act)
+        # statistics at the landing state (in-flight UAV-slots = act & still in the airspace)
+        fly = act & self.present
         s_i = self.served_fraction()
         over = np.take_along_axis(self.D, self.b, axis=1) > self.K
         delivered = self.m_cur * s_i * self.rho_cur                              # kappa_i * rho(gamma_i)
         self.stat_cost += cost
-        self.stat_viol += act * over                                             # R_i < R_min, Eq. (9)
-        self.stat_out += act * (delivered < cfg.R_min * (1 - 1e-9))              # outage, Sec. V-A
-        self.stat_active_slots += act
-        self.stat_rate_ratio += act * s_i
+        self.stat_viol += fly * over                                             # R_i < R_min, Eq. (9)
+        self.stat_out += fly * (delivered < cfg.R_min * (1 - 1e-9))              # outage, Sec. V-A
+        self.stat_active_slots += fly
+        self.stat_rate_ratio += fly * s_i
+        self.stat_los += fly * (n_sep > 0)                                       # loss of separation
+        if not self.mask_mode:
+            d0 = np.all(self.pos[:, :, None, :] == self.pos[:, None, :, :], -1) & self.present[:, None, :]
+            d0[:, np.arange(self.N), np.arange(self.N)] = False
+            self.stat_nmac += fly * d0.any(-1)                                   # same voxel
         if hasattr(self, "_nbr_cnt"):
-            self.stat_nbr += [(act * self._nbr_cnt).sum(), (act * (self._nbr_cnt > self.k)).sum()]
+            self.stat_nbr += [(fly * self._nbr_cnt).sum(), (fly * (self._nbr_cnt > self.k)).sum()]
         u = self.D / self.K
         self.stat_load_jain += live_env * u.sum(1) ** 2 / (self.M * (u ** 2).sum(1) + 1e-12)
         self.stat_overload += live_env * (self.D > self.K).mean(1)
@@ -374,7 +421,7 @@ class LAWNEnv:
 
         out = self._obs()
         out.update(reward=reward.astype(np.float32), cost=cost.astype(np.float32),
-                   active_before=act, penalty=g)
+                   active_before=act, penalty=g, n_sep=n_sep)
         return out
 
     # ----------------------------------------------------------- observation
@@ -398,7 +445,7 @@ class LAWNEnv:
 
         rel = posf[:, None, :, :] - posf[:, :, None, :]                          # q_j - q_i
         dist = np.linalg.norm(rel, axis=-1)
-        nbr = dist <= cfg.d_comm
+        nbr = (dist <= cfg.d_comm) & self.present[:, None, :]                   # exited UAVs send no beacons
         nbr[:, np.arange(N), np.arange(N)] = False
         same = (self.b[:, :, None] == self.b[:, None, :]).astype(np.float32)
         mj = np.broadcast_to((self.m_cur / self.radio.m_max)[:, None, :], same.shape)
@@ -439,8 +486,11 @@ class LAWNEnv:
         parts = [posf, dstf]
         if self.v2:
             parts.append(((self.pos - self.prev) / self.cfg.v_max).reshape(self.E, -1))
-        return np.concatenate(parts + [slack, self.active.astype(np.float64), self.D / self.K],
-                              axis=1).astype(np.float32)
+        parts += [slack, self.active.astype(np.float64)]
+        pad = self.state_N - self.N
+        if pad:                                  # zero rows for absent UAVs (training over several N)
+            parts = [np.concatenate([x, np.zeros((self.E, pad * (x.shape[1] // self.N)))], 1) for x in parts]
+        return np.concatenate(parts + [self.D / self.K], axis=1).astype(np.float32)
 
     # ----------------------------------------------------------- statistics
     def episode_metrics(self) -> Dict[str, float]:
@@ -463,6 +513,8 @@ class LAWNEnv:
             "social_cost": float(self.stat_cost.sum(1).mean()),  # sum_i J_i
             "J": float(self.stat_cost.mean()),
             "viol": float(self.stat_viol.sum() / act.sum()),     # share of in-flight slots with R_i < R_min
+            "los": float(self.stat_los.sum() / act.sum()),       # share of in-flight slots with a loss of separation
+            "nmac": float(self.stat_nmac.sum() / act.sum()),     # share of in-flight slots sharing a voxel
             "rate_ratio": float(self.stat_rate_ratio.sum() / act.sum()),
             "potential": float((self.stat_potential / slots).mean()),
             "overload": float((self.stat_overload / slots).mean()),

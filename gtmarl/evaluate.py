@@ -57,7 +57,8 @@ def save_traj(env: LAWNEnv, path: str):
 
 def setting(ec: EnvConfig) -> Dict:
     return {"L": ec.L, "mu": ec.mu, "eta_eval": ec.eta, "penalty": ec.penalty, "w_nav": ec.w_nav,
-            "w_fail_dist": ec.w_fail_dist, "ablate": "+".join(ec.ablate)}
+            "w_fail_dist": ec.w_fail_dist, "ablate": "+".join(ec.ablate), "sep_mode": ec.sep_mode,
+            "d_safe": ec.d_safe, "w_sep": ec.w_sep, "exit": ec.exit_inactive}
 
 
 def heuristic_traj(ec: EnvConfig, name: str, seed: int, path: str):

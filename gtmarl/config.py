@@ -32,7 +32,8 @@ class EnvConfig:
     h_min: float = 62.5         # altitude of the lowest voxel centre [m]
 
     # ---- Network (Sec. II, V-A) ------------------------------------------------
-    N: int = 40                 # number of UAVs (calibrated: SP outage ~3.6 %, MBR fails)
+    N: int = 50                 # number of UAVs; TVT model calibration: SP outage ~6 %, viol ~24 %, MBR MSR ~0.3
+                                # (v22 model: N = 40)
     M: int = 4                  # number of GBSs (B); square grid -> ISD 750 m for B = 4
     gbs_xy: Optional[List[Tuple[float, float]]] = None   # voxel coords; None -> regular grid
     gbs_height: float = 25.0    # [m]
@@ -54,7 +55,13 @@ class EnvConfig:
 
     # ---- Mobility (Eqs. (10)-(12), (19)) ---------------------------------------
     v_max: int = 1
-    d_safe: float = 1.0
+    d_safe: float = 2.0         # separation [voxels]: loss of separation if ||q_i - q_j|| < d_safe (same or
+                                # any adjacent voxel, centre distance <= sqrt(3) x 25 m ~ 43 m)
+    sep_mode: str = "cost"      # "cost": separation cost w_sep per violating pair, mask only keeps the UAV in
+                                # the airspace (TVT model); "mask": v22 admissible set (no losses of separation)
+    w_sep: float = 50.0         # separation weight, mu beta^(L) = 22.5 < w_sep < c_fail = 100 (safety above
+                                # rate, a single loss of separation cheaper than a failed mission)
+    exit_inactive: bool = True  # arrived / failed UAVs leave the airspace and release their bearers
     d_comm: float = 8.0         # U2U (Remote ID) range, 200 m; must satisfy d_comm >= d_safe + 2 v_max
     eta: float = 1.5            # deadline tolerance T_i^max = eta T_i^min (learned policies depend on eta,
                                 # so V-E retrains per eta; the CDF of T_i / T_i^min is descriptive only)
@@ -84,6 +91,7 @@ class EnvConfig:
                                 # 1: legacy v22 observation (positions only); runs without the key load as 1
 
     # ---- Episode generation -------------------------------------------------
+    state_N: int = 0            # pad the global state (centralised critics) to this many UAVs (0 = N)
     init_check: str = "soft"    # "strict": initial and final configurations overload no cell (Sec. II-A);
                                 # "soft": strict if found within the retry budget, else origins only,
                                 # else unconstrained (large N at B = 4); "off"
@@ -124,6 +132,7 @@ class TrainConfig:
     init_from: str = ""         # warm-start encoder + actor from a checkpoint (e.g. MAPPO from IPPO)
     aux_coef: float = 0.5       # weight of the congestion-prediction loss (algos with aux=True)
     critic_warmup: int = 0      # iterations with the actor frozen (value / aux losses only)
+    N_set: str = ""             # e.g. "20,30,40,50": train over swarm sizes, one per iteration (cyclic)
     heads: int = 4              # attention heads of the EGAT encoder
     gnn_layers: int = 2         # message-passing layers of the EGAT encoder
 
@@ -167,6 +176,9 @@ def from_dict(cls, d: dict):
     obj = cls(**{k: v for k, v in d.items() if k in names})
     if cls is EnvConfig and "obs_version" not in d:
         obj.obs_version = 1                     # run trained before the beacon observation
+    if cls is EnvConfig and "sep_mode" not in d:
+        obj.sep_mode, obj.exit_inactive = "mask", False   # run trained with the v22 model
+        obj.d_safe = d.get("d_safe", 1.0)
     for k in ("snr_th_dB", "ablate"):
         if hasattr(obj, k) and isinstance(getattr(obj, k), list):
             setattr(obj, k, tuple(getattr(obj, k)))

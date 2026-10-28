@@ -16,7 +16,7 @@ import time
 import numpy as np
 import torch
 
-from .config import EnvConfig, TrainConfig, apply_overrides, to_dict
+from .config import EnvConfig, TrainConfig, apply_overrides, from_dict, to_dict
 from .env import LAWNEnv
 from .ppo import ALGO_NAMES, PPOTrainer, evaluate_model
 
@@ -51,6 +51,9 @@ def main(argv=None):
     np.random.seed(tc.seed)
     out = run_dir(tc, ec)
     os.makedirs(out, exist_ok=True)
+    Ns = [int(x) for x in str(tc.N_set).replace(";", ",").split(",") if x] if tc.N_set else []
+    if Ns:
+        ec.state_N = max(Ns + [ec.N])            # one critic input size for every swarm size
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=tc.seed)
     eval_env = LAWNEnv(ec, n_envs=tc.n_envs, seed=10_000 + tc.seed)
     with open(os.path.join(out, "config.json"), "w") as f:
@@ -58,6 +61,11 @@ def main(argv=None):
                    "K_eff": env.K}, f, indent=2, default=str)
 
     trainer = PPOTrainer(tc.algo, env, tc)
+    envs = [env]
+    if Ns:                                       # swarm-size randomisation (one N per iteration)
+        envs = [LAWNEnv(from_dict(EnvConfig, {**to_dict(ec), "N": n}),
+                        n_envs=tc.n_envs, seed=tc.seed + 7 * k) for k, n in enumerate(Ns)]
+        trainer.env = envs[0]
     writer = None
     if a.tb:
         from torch.utils.tensorboard import SummaryWriter
@@ -66,6 +74,7 @@ def main(argv=None):
     log_w = None
     t0 = time.time()
     for it in range(tc.iters):
+        trainer.env = envs[it % len(envs)]
         row = trainer.train_iter()
         row["iter"] = it
         row["time_min"] = (time.time() - t0) / 60

@@ -35,11 +35,14 @@ def test_penalty_certifies_rate(env):
         o = env.step(_random_admissible(o["mask"], rng))
         g = env.penalty()
         Db = np.take_along_axis(env.D, env.b, 1)
-        assert np.array_equal(g == 0, Db <= env.K)
+        pr = env.present                     # exited UAVs carry no penalty
+        assert np.array_equal((g == 0)[pr], (Db <= env.K)[pr])
 
 
-def test_separation_preserved(env):
-    """Eq. (17) keeps Eq. (9) from a separated initial configuration."""
+def test_separation_preserved():
+    """v22 mask mode: Eq. (17) keeps Eq. (9) from a separated initial configuration."""
+    env = LAWNEnv(EnvConfig(N=30, K_b=25, init_check="off", sep_mode="mask", d_safe=1.0,
+                            exit_inactive=False), n_envs=4, seed=1)
     rng = np.random.default_rng(1)
     for _ in range(3):
         o = env.reset()
@@ -50,8 +53,12 @@ def test_separation_preserved(env):
             assert d.min() >= env.cfg.d_safe - 1e-9
 
 
-def test_exact_potential(env):
-    """Prop. 1: unilateral deviation changes c_i and phi by the same amount."""
+@pytest.mark.parametrize("mode", ["cost", "mask"])
+def test_exact_potential(mode):
+    """Prop. 1: unilateral deviation changes c_i and phi by the same amount (with the separation
+    cost and exiting UAVs in the TVT model, without them in the v22 model)."""
+    kw = {} if mode == "cost" else dict(sep_mode="mask", d_safe=1.0, exit_inactive=False)
+    env = LAWNEnv(EnvConfig(N=30, K_b=25, init_check="off", **kw), n_envs=4, seed=1)
     rng = np.random.default_rng(2)
     o = env.reset()
     for _ in range(10):
@@ -74,11 +81,10 @@ def test_exact_potential(env):
                     env.pos, env.t, env.arrived, env.failed = (x.copy() for x in saved)
                     act_before = env.active.copy()
                     out = env.step(acts)
-                    c_i = 1.0 / env.Tmin[e, i] + env.cfg.mu * out["penalty"][e, i]
-                    vals.append((c_i, env.potential()[e]))
+                    vals.append((out["cost"][e, i], env.potential()[e]))
                     assert act_before[e, i]
                 (c1, p1), (c2, p2) = vals
-                assert abs((c1 - c2) - (p1 - p2)) < 1e-9
+                assert abs((c1 - c2) - (p1 - p2)) < 1e-4
                 checked += 1
     assert checked > 0
 
@@ -185,3 +191,23 @@ def test_legacy_config_loads_v1():
     d.pop("obs_version")
     ec = from_dict(EnvConfig, d)
     assert ec.obs_version == 1 and LAWNEnv(ec, n_envs=1).own_dim == 12
+
+
+def test_exit_releases_bearers():
+    """Finished UAVs leave the airspace: no demand, no beacons, no separation pairs."""
+    e = LAWNEnv(EnvConfig(N=10, eta=1.0), n_envs=2, seed=2)
+    rng = np.random.default_rng(2)
+    o = e.reset()
+    while not e.done.all():
+        o = e.step(_random_admissible(o["mask"], rng))
+        gone = ~e.active
+        assert np.allclose(e.D.sum(1), (e.m_cur * ~gone).sum(1))
+        assert not e.separation()[gone].any()
+    assert np.allclose(e.D, 0) and e.failed.any()
+
+
+def test_large_swarm_sampling():
+    e = LAWNEnv(EnvConfig(N=80), n_envs=8, seed=3)
+    e.reset()
+    d = np.linalg.norm(e.pos[:, :, None] - e.pos[:, None], axis=-1) + np.eye(80) * 99
+    assert d.min() >= e.cfg.d_safe

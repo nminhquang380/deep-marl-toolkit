@@ -2,8 +2,9 @@
 
 * greedy : shortest-path progress toward the destination, congestion-unaware
 * myopic : one-step best response to the current cell demands, i.e. it minimises
-           the estimated time-to-go plus the congestion penalty of Eq. (12) at the
-           landing voxel with the other UAVs held at their current positions
+           the estimated time-to-go plus the congestion penalty of Eq. (12) (and the
+           separation cost) at the landing voxel with the other UAVs held at their
+           current positions
 
 Both escape deadlocks under the separation mask of Eq. (17): a UAV that has
 hovered for ``patience`` consecutive slots takes a random admissible move.
@@ -41,6 +42,11 @@ def myopic_actions(env: LAWNEnv, mask: np.ndarray, rng) -> np.ndarray:
     g_hat = np.minimum(m_land, np.maximum(D_new - env.K, 0))
     togo = np.abs(land - env.dest[:, :, None, :]).sum(-1) / cfg.v_max
     score = (1.0 + togo) / env.Tmin[..., None] + cfg.mu * g_hat
+    if cfg.sep_mode != "mask":                       # separation cost with the others held in place
+        d = np.linalg.norm(land[:, :, :, None, :] - env.pos[:, None, None, :, :], axis=-1)   # (E,N,A,N)
+        near = (d < cfg.d_safe - 1e-9) & env.present[:, None, None, :]
+        near[:, np.arange(env.N), :, np.arange(env.N)] = False
+        score = score + cfg.w_sep * near.sum(-1)
     return _choose(score, mask, rng)
 
 
