@@ -44,7 +44,7 @@ def myopic_actions(env: LAWNEnv, mask: np.ndarray, rng) -> np.ndarray:
     score = (1.0 + togo) / env.Tmin[..., None] + cfg.mu * g_hat
     if cfg.sep_mode != "mask":                       # separation cost with the others held in place
         d = np.linalg.norm(land[:, :, :, None, :] - env.pos[:, None, None, :, :], axis=-1)   # (E,N,A,N)
-        near = (d < cfg.d_safe - 1e-9) & env.present[:, None, None, :]
+        near = env.too_close(d) & env.present[:, None, None, :]
         near[:, np.arange(env.N), :, np.arange(env.N)] = False
         score = score + cfg.w_sep * near.sum(-1)
     return _choose(score, mask, rng)

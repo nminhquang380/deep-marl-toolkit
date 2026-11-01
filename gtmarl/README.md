@@ -66,9 +66,11 @@ encoder diagnostics, the MAPPO fix (critic warm-up) and zero-shot transfer.
 
 ## TVT model (Oct 2026, `sep_mode=cost`, default)
 
-* Separation is priced instead of enforced: c_i += w_sep * #{j : ||q_i' - q_j'|| < d_safe} with
-  d_safe = 2 voxels and mu beta^(L) = 22.5 < w_sep = 50 < c_fail = 100; the action mask only keeps
-  UAVs inside the airspace. The pairwise cost is symmetric, so Prop. 1 holds with
+* Separation is priced instead of enforced: c_i += w_sep * #{j : ||q_i' - q_j'|| <= d_safe} with
+  d_safe = 1 voxel (same or face-adjacent voxel, <= 25 m) and w_sep = 30 > mu beta^(L) = 22.5; the
+  action mask only keeps UAVs inside the airspace. (Pilot 3 used "< 2" and w_sep = 50: flying blind
+  then cost ~333 per UAV, more than failing (~115), so IPPO without neighbours stayed at the depots
+  and every learner first learned to hover; with the current rule SP pays ~66.) The pairwise cost is symmetric, so Prop. 1 holds with
   phi += w_sep * #violating pairs (checked in `tests/`).
 * Arrived / failed UAVs leave the airspace and release their bearers (`exit_inactive`).
 * New metrics: `los` (in-flight slots with a loss of separation), `nmac` (slots sharing a voxel).
@@ -76,7 +78,7 @@ encoder diagnostics, the MAPPO fix (critic warm-up) and zero-shot transfer.
   MBR MSR ~0.3 (N = 40: P_out 0.8 %, too easy). Depots grow as sqrt(N / 40) for N > 40.
 * `N_set=30,40,50,60` trains over swarm sizes (global state padded to max N for central critics).
 * Runs trained before this change load with the v22 model (mask, no exit).
-* `bash gtmarl/scripts/pilot3.sh` runs the pilot of this model.
+* `bash gtmarl/scripts/pilot4.sh` runs the pilot of this model (pilot3.sh: previous rule).
 
 ## Default setting (Table I)
 

@@ -210,4 +210,5 @@ def test_large_swarm_sampling():
     e = LAWNEnv(EnvConfig(N=80), n_envs=8, seed=3)
     e.reset()
     d = np.linalg.norm(e.pos[:, :, None] - e.pos[:, None], axis=-1) + np.eye(80) * 99
-    assert d.min() >= e.cfg.d_safe
+    assert d.min() > e.cfg.d_safe
+    assert not e.separation().any()          # the initial configuration is separated

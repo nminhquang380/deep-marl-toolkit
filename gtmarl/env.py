@@ -142,7 +142,9 @@ class LAWNEnv:
         self.dims_norm = np.maximum(self.dims - 1, 1).astype(np.float32)
         self.sep_move = cfg.d_safe + cfg.v_max
         self.mask_mode = cfg.sep_mode == "mask"
-        self.sep_init = self.sep_move if self.mask_mode else cfg.d_safe   # separation of the initial configuration
+        # separation of the initial configuration (strictly beyond d_safe in the TVT model)
+        self.sep_init = self.sep_move if self.mask_mode else \
+            (cfg.d_safe + 0.5 if cfg.sep_inclusive else cfg.d_safe)
         self.rng = np.random.default_rng(seed)
         self.k = cfg.knn_k
         self.cap = max(cfg.nbr_cap, cfg.knn_k)
@@ -320,11 +322,15 @@ class LAWNEnv:
         over = np.maximum(self.D - self.K, 0.0)                                  # Eq. (14)
         return np.minimum(self.m_cur, np.take_along_axis(over, self.b, axis=1)) * self.present
 
+    def too_close(self, d: np.ndarray) -> np.ndarray:
+        """Loss-of-separation rule: ||q_i - q_j|| <= d_safe (TVT) or < d_safe (pilot 3)."""
+        return d <= self.cfg.d_safe + 1e-9 if self.cfg.sep_inclusive else d < self.cfg.d_safe - 1e-9
+
     def separation(self) -> np.ndarray:
         """Pairs (i, j) of UAVs in the airspace closer than d_safe, shape (E, N, N), bool."""
         d = np.linalg.norm(self.pos[:, :, None, :] - self.pos[:, None, :, :], axis=-1)
         pr = self.present
-        v = (d < self.cfg.d_safe - 1e-9) & pr[:, :, None] & pr[:, None, :]
+        v = self.too_close(d) & pr[:, :, None] & pr[:, None, :]
         v[:, np.arange(self.N), np.arange(self.N)] = False
         return v
 

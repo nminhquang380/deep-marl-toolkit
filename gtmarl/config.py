@@ -55,12 +55,13 @@ class EnvConfig:
 
     # ---- Mobility (Eqs. (10)-(12), (19)) ---------------------------------------
     v_max: int = 1
-    d_safe: float = 2.0         # separation [voxels]: loss of separation if ||q_i - q_j|| < d_safe (same or
-                                # any adjacent voxel, centre distance <= sqrt(3) x 25 m ~ 43 m)
+    d_safe: float = 1.0         # separation [voxels]: loss of separation if ||q_i - q_j|| <= d_safe, i.e. the
+                                # same or a face-adjacent voxel (<= 25 m)
+    sep_inclusive: bool = True  # "<=" (TVT model); pilot-3 runs used "<" with d_safe = 2
     sep_mode: str = "cost"      # "cost": separation cost w_sep per violating pair, mask only keeps the UAV in
                                 # the airspace (TVT model); "mask": v22 admissible set (no losses of separation)
-    w_sep: float = 50.0         # separation weight, mu beta^(L) = 22.5 < w_sep < c_fail = 100 (safety above
-                                # rate, a single loss of separation cheaper than a failed mission)
+    w_sep: float = 30.0         # separation weight: w_sep > mu beta^(L) = 22.5 (safety above rate); with SP
+                                # flying blind costs ~66 per UAV < failing (~115), so not flying is not rational
     exit_inactive: bool = True  # arrived / failed UAVs leave the airspace and release their bearers
     d_comm: float = 8.0         # U2U (Remote ID) range, 200 m; must satisfy d_comm >= d_safe + 2 v_max
     eta: float = 1.5            # deadline tolerance T_i^max = eta T_i^min (learned policies depend on eta,
@@ -176,6 +177,8 @@ def from_dict(cls, d: dict):
     obj = cls(**{k: v for k, v in d.items() if k in names})
     if cls is EnvConfig and "obs_version" not in d:
         obj.obs_version = 1                     # run trained before the beacon observation
+    if cls is EnvConfig and "sep_inclusive" not in d:
+        obj.sep_inclusive = False               # pilot-3 runs: strict "<" separation rule
     if cls is EnvConfig and "sep_mode" not in d:
         obj.sep_mode, obj.exit_inactive = "mask", False   # run trained with the v22 model
         obj.d_safe = d.get("d_safe", 1.0)
