@@ -26,6 +26,7 @@ import argparse
 import copy
 import json
 import os
+import time
 
 import numpy as np
 import torch
@@ -93,12 +94,16 @@ def main(argv=None):
                     sp=sp)
 
     # candidate 0 = the trained policy (no deviation)
+    t0 = time.time()
     c0, _ = agent0_costs(ec, policy, opponent, a.val_episodes, a.n_envs, VAL_SEED)
+    print(f"BR start: val J0(policy) {c0.mean():.4f} ({(time.time() - t0) / 60:.1f} min)", flush=True)
     best_val, best_it, best_state = float(c0.mean()), 0, None
     curve = [(0, best_val)]
     every = max(1, a.iters // a.n_snap)
     for it in range(a.iters):
         tr.train_iter()
+        if (it + 1) % 10 == 0:
+            print(f"BR it {it + 1}/{a.iters} ({(time.time() - t0) / 60:.1f} min)", flush=True)
         if (it + 1) % every == 0 or it == a.iters - 1:
             c, _ = agent0_costs(ec, tr.model, opponent, a.val_episodes, a.n_envs, VAL_SEED)
             curve.append((it + 1, float(c.mean())))

@@ -27,7 +27,7 @@ def main(argv=None):
         key = r["method"] + (f"_{r['tag']}" if r.get("tag") else "")
         g[key].append({k: float(v) for k, v in r.items() if k in
                        ("success", "detour", "p_out", "jain_load", "social_cost", "J", "viol",
-                        "nbr_mean", "nbr_gt_k")})
+                        "nbr_mean", "nbr_gt_k", "los", "nmac") and v not in ("", None)})
     m = {k: {kk: float(np.mean([x[kk] for x in v])) for kk in v[0]} for k, v in g.items()}
     if not m:
         print(f"gate: no rows with N = {a.N} in main.csv"); return
@@ -51,8 +51,13 @@ def main(argv=None):
     PR = a.proposed
     P, MY, GR = m.get(PR), m.get("myopic"), m.get("greedy")
     best = lambda k: min(MY[k], GR[k]) if MY and GR else float("nan")
+    tvt = P is not None and "los" in P and GR is not None and GR.get("los", 0) > 0
+    if tvt:   # TVT model: SP always arrives (no mask) but ignores separation, so C1 is absolute
+        c1 = ("C1 MSR >= 0.95 and LoS < LoS(SP) / 10", P["success"] >= 0.95 and P["los"] < GR["los"] / 10)
+    else:
+        c1 = ("C1 MSR >= SP MSR - 0.02", P and GR and P["success"] >= GR["success"] - 0.02)
     checks = [
-        ("C1 MSR >= SP MSR - 0.02", P and GR and P["success"] >= GR["success"] - 0.02),
+        c1,
         ("C2 J < min(J_SP, J_MBR)", P and MY and GR and P["J"] < best("J")),
         ("C3 P_out <= min(P_out SP, MBR)", P and MY and GR and P["p_out"] <= best("p_out")),
         ("C4 J < J of IPPO-MLP (graph helps)", P and "ippo_mlp" in m and P["J"] < m["ippo_mlp"]["J"]),
