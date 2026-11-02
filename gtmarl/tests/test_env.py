@@ -212,3 +212,16 @@ def test_large_swarm_sampling():
     d = np.linalg.norm(e.pos[:, :, None] - e.pos[:, None], axis=-1) + np.eye(80) * 99
     assert d.min() > e.cfg.d_safe
     assert not e.separation().any()          # the initial configuration is separated
+
+
+@pytest.mark.parametrize("abl", [("star",), ("vel",)])
+def test_ablations_run(abl):
+    from gtmarl.config import TrainConfig
+    from gtmarl.ppo import PPOTrainer
+    e = LAWNEnv(EnvConfig(N=10, ablate=abl), n_envs=2, seed=1)
+    tr = PPOTrainer("egat_cc", e, TrainConfig(n_envs=2, epochs=1, minibatches=2))
+    assert tr.model.gnn.star == ("star" in abl)
+    assert np.isfinite(tr.train_iter()["loss/v_loss"])
+    if "vel" in abl:
+        o = e.reset(); e.step(np.ones((2, 10), int)); o = e._obs()
+        assert np.allclose(o["obs"][..., 12:15], 0)

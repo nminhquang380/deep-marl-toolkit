@@ -80,6 +80,21 @@ encoder diagnostics, the MAPPO fix (critic warm-up) and zero-shot transfer.
 * Runs trained before this change load with the v22 model (mask, no exit).
 * `bash gtmarl/scripts/pilot4.sh` runs the pilot of this model (pilot3.sh: previous rule).
 
+## Final sweep (Nov 2026): four resumable parts
+
+Run each part inside tmux; re-running the same command resumes it (finished runs, evaluations and
+BR-gap files are skipped). Defaults: N = 50, IT = 800, `n_envs=16 epochs=4`, separation curriculum
+(`sep_warmup=200`: w_sep ramps from 0, the evaluated game is unchanged).
+
+| script | content | jobs (threads) |
+|---|---|---|
+| `sweepA.sh` | V-B/V-C: egat_cc vs ippo_mlp x5 seeds at N = 50 (+ transfer), egat_cc vs mappo_egat at N = 30, BR gaps | 14 (~23) |
+| `sweepB.sh` | V-D: N in {40, 60}; V-E: eta in {1.2, 2, 3} | 14 (~24) |
+| `sweepC.sh` | V-F: penalties x weights (P_out-detour trade-off) | 11 (~22) |
+| `sweepD.sh` | V-F ablations (local critic, mean aggregation, star graph, no velocity, no shaping), R_min | 11 (~22) |
+
+Results: `gtmarl/data/sweep/{A,B,C,D}/summary.txt` (tables, BR gaps, learning curves).
+
 ## Default setting (Table I)
 
 Values marked † are not fixed by v22 and were chosen here; please confirm.

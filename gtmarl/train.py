@@ -8,6 +8,7 @@ python -m gtmarl.train --algo mappo --seed 0 --env N=30 K_b_scale_with_N=true
 from __future__ import annotations
 
 import argparse
+import copy
 import csv
 import json
 import os
@@ -37,6 +38,7 @@ def main(argv=None):
     p.add_argument("--env", nargs="*", default=[], help="EnvConfig overrides key=value")
     p.add_argument("--train", nargs="*", default=[], help="TrainConfig overrides key=value")
     p.add_argument("--tb", action="store_true", help="also log to TensorBoard")
+    p.add_argument("--skip_done", action="store_true", help="exit if this run already finished")
     a = p.parse_args(argv)
 
     ec = apply_overrides(EnvConfig(), a.env)
@@ -50,11 +52,17 @@ def main(argv=None):
     torch.manual_seed(tc.seed)
     np.random.seed(tc.seed)
     out = run_dir(tc, ec)
+    if a.skip_done and os.path.exists(os.path.join(out, "model_last.pt")):
+        with open(os.path.join(out, "progress.csv")) as f:
+            done = sum(1 for _ in f) - 1
+        if done >= tc.iters:
+            print(f"{out}: finished ({done} iterations), skipping", flush=True)
+            return
     os.makedirs(out, exist_ok=True)
     Ns = [int(x) for x in str(tc.N_set).replace(";", ",").split(",") if x] if tc.N_set else []
     if Ns:
         ec.state_N = max(Ns + [ec.N])            # one critic input size for every swarm size
-    env = LAWNEnv(ec, n_envs=tc.n_envs, seed=tc.seed)
+    env = LAWNEnv(copy.deepcopy(ec), n_envs=tc.n_envs, seed=tc.seed)   # own config: curriculum below
     eval_env = LAWNEnv(ec, n_envs=tc.n_envs, seed=10_000 + tc.seed)
     with open(os.path.join(out, "config.json"), "w") as f:
         json.dump({"env": to_dict(ec), "train": to_dict(tc), "radio": env.radio.summary(),
@@ -75,7 +83,11 @@ def main(argv=None):
     t0 = time.time()
     for it in range(tc.iters):
         trainer.env = envs[it % len(envs)]
+        w_frac = min(1.0, it / tc.sep_warmup) if tc.sep_warmup > 0 else 1.0
+        for e_ in envs:                          # separation curriculum (training envs only)
+            e_.cfg.w_sep = ec.w_sep * w_frac
         row = trainer.train_iter()
+        row["train/w_sep"] = trainer.env.cfg.w_sep
         row["iter"] = it
         row["time_min"] = (time.time() - t0) / 60
         if (it + 1) % tc.eval_every == 0 or it == tc.iters - 1:

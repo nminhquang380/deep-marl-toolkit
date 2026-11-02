@@ -85,7 +85,9 @@ class EnvConfig:
                                 # policies unchanged (Prop. 3); 0 = ablation without shaping, game cost unchanged
     penalty: str = "marginal"   # "marginal" g_i of Eq. (14) | "lost" beta_i - kappa_i |
                                 # "indicator" 1[R_i < R_min] | "shortfall" [R_min - R_i]^+ / R_min
-    ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos"} (Sec. V-F)
+    ablate: Tuple[str, ...] = ()  # subset of {"cocell", "beta_nbr", "own_pos", "vel", "star"} (Sec. V-F):
+                                  # "vel" removes the velocities from the beacons, "star" removes the
+                                  # neighbour-neighbour edges of the EGAT local graph
     knn_k: int = 4              # neighbours of the IPPO-MLP benchmark
     nbr_cap: int = 8            # neighbours carried in the observation for message passing (|M_i| itself is uncapped)
     obs_version: int = 2        # 2: beacons carry velocity and serving-GBS location (Remote ID), own velocity;
@@ -133,6 +135,8 @@ class TrainConfig:
     init_from: str = ""         # warm-start encoder + actor from a checkpoint (e.g. MAPPO from IPPO)
     aux_coef: float = 0.5       # weight of the congestion-prediction loss (algos with aux=True)
     critic_warmup: int = 0      # iterations with the actor frozen (value / aux losses only)
+    sep_warmup: int = 200       # training curriculum: w_sep ramps linearly from 0 over these iterations
+                                # (the game is unchanged once it is reached; evaluation uses the full w_sep)
     N_set: str = ""             # e.g. "20,30,40,50": train over swarm sizes, one per iteration (cyclic)
     heads: int = 4              # attention heads of the EGAT encoder
     gnn_layers: int = 2         # message-passing layers of the EGAT encoder

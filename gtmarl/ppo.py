@@ -31,6 +31,7 @@ ALGOS = {  # algo -> (neighbour encoder, centralised critic, team reward, conges
     "egat_cc": ("egat", True, False, False),      #   + agent-specific centralised critic V_i(s, o_i)
     "egat_cc_aux": ("egat", True, False, True),
     "gippo": ("graph", False, False, False),      # mean of raw beacon features (v22 Eq. (29))
+    "gippo_cc": ("graph", True, False, False),    # mean aggregation + agent-specific central critic (ablation)
     "gippo_msg": ("graph_msg", False, False, False),  # message MLP before the mean (GraphSAGE-mean)
     "ippo_mlp": ("knn", False, False, False),     # IPPO-MLP benchmark (k nearest neighbours)
     "ippo": ("none", False, False, False),        # no neighbour information
@@ -52,7 +53,8 @@ def build_model(algo: str, env: LAWNEnv, tc: TrainConfig) -> ActorCritic:
                         nbr=sp["nbr"], knn_k=env.k, state_dim=env.state_dim if central else 0,
                         obs_dim=env.obs_dim if central else 0, nbr_cap=env.cap,
                         own_dim=env.own_dim, nbr_dim=env.nbr_dim, aux=sp["aux"],
-                        heads=getattr(tc, "heads", 4), gnn_layers=getattr(tc, "gnn_layers", 2))
+                        heads=getattr(tc, "heads", 4), gnn_layers=getattr(tc, "gnn_layers", 2),
+                        star="star" in env.cfg.ablate)
     if getattr(tc, "init_from", ""):
         # warm start (e.g. CTDE-MAPPO from a trained IPPO policy): copy encoder, message MLP and
         # actor; every such tensor must exist with the same shape, otherwise fail loudly

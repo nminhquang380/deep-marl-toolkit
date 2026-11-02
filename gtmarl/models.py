@@ -70,9 +70,11 @@ class EGAT(nn.Module):
 
     EDGE_DIM = 8
 
-    def __init__(self, own_dim: int, nbr_dim: int, hidden: int = 64, heads: int = 4, layers: int = 2):
+    def __init__(self, own_dim: int, nbr_dim: int, hidden: int = 64, heads: int = 4, layers: int = 2,
+                 star: bool = False):
         super().__init__()
         assert hidden % heads == 0
+        self.star = star                       # ablation: only ego-neighbour edges (no neighbour-neighbour)
         self.h, self.H, self.L, self.dh = heads, hidden, layers, hidden // heads
         self.inp_ego = nn.Linear(own_dim, hidden)
         self.inp_nbr = nn.Linear(nbr_dim, hidden)
@@ -100,6 +102,10 @@ class EGAT(nn.Module):
         same = ((G[:, None] - G[:, :, None]).abs().sum(-1, keepdim=True) < 1e-4).float()
         e = torch.cat([dP, dist, V[:, None] - V[:, :, None], same], -1)     # (B, n, n, 8)
         adj = ok[:, :, None] & ok[:, None, :] & (dist[..., 0] <= 1.0 + 1e-6)
+        if self.star:
+            ego = torch.zeros(n, n, dtype=torch.bool, device=adj.device)
+            ego[0, :] = True; ego[:, 0] = True
+            adj = adj & (ego | torch.eye(n, dtype=torch.bool, device=adj.device))
         neg = (~adj).unsqueeze(-1) * -1e9
         x = torch.cat([self.inp_ego(own)[:, None], self.inp_nbr(nb)], 1)    # (B, n, H)
         okf = ok.unsqueeze(-1).float()
@@ -134,12 +140,12 @@ class ActorCritic(nn.Module):
     def __init__(self, n_gbs: int, n_actions: int, hidden: int = 128, emb_dim: int = 64,
                  nbr: str = "graph", knn_k: int = 4, state_dim: int = 0, obs_dim: int = 0,
                  nbr_cap: int = 8, msg_dim: int = 32, own_dim: int = OWN_DIM, nbr_dim: int = NBR_DIM,
-                 aux: bool = False, heads: int = 4, gnn_layers: int = 2):
+                 aux: bool = False, heads: int = 4, gnn_layers: int = 2, star: bool = False):
         super().__init__()
         self.kw = dict(n_gbs=n_gbs, n_actions=n_actions, hidden=hidden, emb_dim=emb_dim, nbr=nbr,
                        knn_k=knn_k, state_dim=state_dim, obs_dim=obs_dim, nbr_cap=nbr_cap,
                        msg_dim=msg_dim, own_dim=own_dim, nbr_dim=nbr_dim, aux=aux, heads=heads,
-                       gnn_layers=gnn_layers)
+                       gnn_layers=gnn_layers, star=star)
         self.nbr, self.knn_k, self.n_gbs, self.nbr_cap = nbr, knn_k, n_gbs, max(nbr_cap, knn_k)
         self.own_dim, self.nbr_dim = own_dim, nbr_dim
         self.use_graph = nbr in ("graph", "graph_msg", "egat")
@@ -147,7 +153,7 @@ class ActorCritic(nn.Module):
             self.phi = nn.Sequential(mlp(nbr_dim, 64, msg_dim, n_hidden=1), nn.Tanh())
         if nbr == "egat":
             assert own_dim >= 15 and nbr_dim >= 12, "egat needs obs_version 2"
-            self.gnn = EGAT(own_dim, nbr_dim, hidden=emb_dim, heads=heads, layers=gnn_layers)
+            self.gnn = EGAT(own_dim, nbr_dim, hidden=emb_dim, heads=heads, layers=gnn_layers, star=star)
         enc_in = own_dim + {"graph": nbr_dim + 1, "graph_msg": msg_dim + 1, "knn": nbr_dim * knn_k,
                             "none": 0, "egat": emb_dim}[nbr]
         self.encoder = nn.Sequential(mlp(enc_in, hidden, emb_dim, n_hidden=1), nn.Tanh())

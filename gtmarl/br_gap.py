@@ -84,7 +84,9 @@ def main(argv=None):
     opponent = copy.deepcopy(policy).eval()
 
     # fine-tuning defaults: one agent's samples per iteration -> smaller steps
-    tc = TrainConfig(lr=1e-4, epochs=4, minibatches=2)
+    # critic warm-up: the deviator starts with the policy's actor but, for central-critic policies, a fresh
+    # critic; without it the first noisy advantages degrade the deviator before it can improve
+    tc = TrainConfig(lr=1e-4, epochs=4, minibatches=2, critic_warmup=20)
     tc = apply_overrides(tc, a.train)
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
     tc.ent_coef = tc.ent_coef_final

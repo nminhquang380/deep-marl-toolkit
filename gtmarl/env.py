@@ -448,6 +448,8 @@ class LAWNEnv:
             axis=-1)                                                             # Eq. (27)
         if "own_pos" in cfg.ablate:
             own[..., 0:3] = 0.0
+        if "vel" in cfg.ablate and self.v2:
+            own[..., 12:15] = 0.0
 
         rel = posf[:, None, :, :] - posf[:, :, None, :]                          # q_j - q_i
         dist = np.linalg.norm(rel, axis=-1)
@@ -465,6 +467,8 @@ class LAWNEnv:
             feat[..., 4] = 0.0
         if "beta_nbr" in cfg.ablate:
             feat[..., 5] = 0.0
+        if "vel" in cfg.ablate and self.v2:
+            feat[..., 6:9] = 0.0
         cnt = nbr.sum(-1, keepdims=True).astype(np.float32)
         self._nbr_cnt = cnt[..., 0]
         mean = (feat * nbr[..., None]).sum(2) / np.maximum(cnt, 1.0)             # Eq. (29)
