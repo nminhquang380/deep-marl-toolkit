@@ -3,7 +3,7 @@
 set -uo pipefail
 export CUDA_VISIBLE_DEVICES="" OMP_NUM_THREADS=1 MKL_NUM_THREADS=1
 DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"
-IT=${IT:-800}; TH_G=${TH_G:-2}; TX=${TX:-"n_envs=16 epochs=4"}
+IT=${IT:-1200}; TH_G=${TH_G:-2}; TX=${TX:-"n_envs=16 epochs=4"}
 EV_EP=${EV_EP:-1024}
 BR_ENVS=${BR_ENVS:-32}; BR_IT=${BR_IT:-100}; BR_VAL=${BR_VAL:-512}; BR_TEST=${BR_TEST:-2048}; BR_TH=${BR_TH:-4}
 
@@ -41,7 +41,17 @@ evaluate() {
   [ -n "$heur" ] && args="$args --heuristics $heur"
   [ -n "$ns" ] && args="$args --N $ns"
   [ $# -gt 0 ] && args="$args --env $*"
-  nice -n 10 python -m gtmarl.evaluate --episodes $EV_EP $args --out $out > $L/ev_$name.log 2>&1 &
+  nice -n 10 python -m gtmarl.evaluate --episodes $EV_EP ${CKPT:+--ckpt $CKPT} $args --out $out \
+    > $L/ev_$name.log 2>&1 &
+}
+
+# resume RUN_DIR ITERS   (continue a run, with its own configuration, to ITERS; entropy at its final value)
+resume() {
+  local run=$1 iters=$2
+  [ -f "$run/model_last.pt" ] || { log "cannot resume $run (no checkpoint)"; return; }
+  local th=1; case $(basename $run) in egat*|mappo_egat*|gippo_cc*) th=$TH_G;; esac
+  nice -n 10 python -m gtmarl.train --resume $run --skip_done --train threads=$th $TX ent_coef=0.001 \
+    --iters $iters > $L/resume_$(basename $run).log 2>&1 &
 }
 
 # br RUN_DIR SEED NAME   (background; skipped if the json exists)

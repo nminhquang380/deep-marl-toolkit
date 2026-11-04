@@ -2,7 +2,7 @@
 # Sweep part B (V-D, V-E deadline): retraining at other swarm sizes and deadline tolerances.
 #   N in {40, 60}: egat_cc and ippo_mlp, 2 seeds (N = 30, 50 come from part A)
 #   eta in {1.2, 2.0, 3.0}: egat_cc, 2 seeds (eta = 1.5 comes from part A); SP, MBR at every setting
-# Usage (inside tmux): bash gtmarl/scripts/sweepB.sh      Re-run the same command to resume.
+# IT = 1200 (sweep_lib default). Usage (inside tmux): bash gtmarl/scripts/sweepB.sh      Re-run the same command to resume.
 source "$(dirname "${BASH_SOURCE[0]}")/sweep_lib.sh"
 setup ${1:-$DATA/sweep/B}
 log "part B: training (IT=$IT, TX=$TX)"

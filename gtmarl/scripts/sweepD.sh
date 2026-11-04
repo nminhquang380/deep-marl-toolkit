@@ -3,7 +3,7 @@
 #   2 seeds: egat (local critic), gippo_cc (mean aggregation), egat_cc without neighbour-neighbour edges
 #            (star), egat_cc without velocities in the beacons
 #   seed 0:  egat_cc without shaping (w_nav = 0, game unchanged); egat_cc at R_min in {4, 8} Mb/s
-# Usage (inside tmux): bash gtmarl/scripts/sweepD.sh      Re-run the same command to resume.
+# IT = 1200 (sweep_lib default). Usage (inside tmux): bash gtmarl/scripts/sweepD.sh      Re-run the same command to resume.
 source "$(dirname "${BASH_SOURCE[0]}")/sweep_lib.sh"
 setup ${1:-$DATA/sweep/D}
 log "part D: training (IT=$IT, TX=$TX)"

@@ -39,10 +39,21 @@ def main(argv=None):
     p.add_argument("--train", nargs="*", default=[], help="TrainConfig overrides key=value")
     p.add_argument("--tb", action="store_true", help="also log to TensorBoard")
     p.add_argument("--skip_done", action="store_true", help="exit if this run already finished")
+    p.add_argument("--resume", default=None, metavar="RUN_DIR",
+                   help="continue RUN_DIR (its config.json) from model_last.pt up to --iters; --train "
+                        "overrides apply on top; progress.csv is appended")
     a = p.parse_args(argv)
 
-    ec = apply_overrides(EnvConfig(), a.env)
-    tc = apply_overrides(TrainConfig(), a.train)
+    if a.resume:
+        with open(os.path.join(a.resume, "config.json")) as f:
+            cfg0 = json.load(f)
+        ec = apply_overrides(from_dict(EnvConfig, cfg0["env"]), a.env)
+        tc = apply_overrides(from_dict(TrainConfig, cfg0["train"]), a.train)
+        tc.init_from = ""
+        a.algo, a.seed = tc.algo, tc.seed
+    else:
+        ec = apply_overrides(EnvConfig(), a.env)
+        tc = apply_overrides(TrainConfig(), a.train)
     tc.algo, tc.seed = a.algo, a.seed
     for k in ("iters", "out", "tag", "device"):
         if getattr(a, k) is not None:
@@ -51,7 +62,7 @@ def main(argv=None):
     torch.set_num_threads(tc.threads)
     torch.manual_seed(tc.seed)
     np.random.seed(tc.seed)
-    out = run_dir(tc, ec)
+    out = a.resume.rstrip("/") if a.resume else run_dir(tc, ec)
     if a.skip_done and os.path.exists(os.path.join(out, "model_last.pt")):
         with open(os.path.join(out, "progress.csv")) as f:
             done = sum(1 for _ in f) - 1
@@ -59,6 +70,13 @@ def main(argv=None):
             print(f"{out}: finished ({done} iterations), skipping", flush=True)
             return
     os.makedirs(out, exist_ok=True)
+    start, t_prev, old_fields = 0, 0.0, None
+    if a.resume and os.path.exists(os.path.join(out, "model_last.pt")):
+        with open(os.path.join(out, "progress.csv")) as f:
+            old = list(csv.DictReader(f))
+        start, t_prev = len(old), float(old[-1]["time_min"]) if old else 0.0
+        old_fields = list(old[0].keys()) if old else None
+        print(f"{out}: resuming at iteration {start} -> {tc.iters}", flush=True)
     Ns = [int(x) for x in str(tc.N_set).replace(";", ",").split(",") if x] if tc.N_set else []
     if Ns:
         ec.state_N = max(Ns + [ec.N])            # one critic input size for every swarm size
@@ -66,9 +84,12 @@ def main(argv=None):
     eval_env = LAWNEnv(ec, n_envs=tc.n_envs, seed=10_000 + tc.seed)
     with open(os.path.join(out, "config.json"), "w") as f:
         json.dump({"env": to_dict(ec), "train": to_dict(tc), "radio": env.radio.summary(),
-                   "K_eff": env.K}, f, indent=2, default=str)
+                   "K_eff": env.K, "resumed_at": start}, f, indent=2, default=str)
 
     trainer = PPOTrainer(tc.algo, env, tc)
+    if start:
+        trainer.model.load_state_dict(torch.load(os.path.join(out, "model_last.pt"), map_location=tc.device))
+        trainer.it = start
     envs = [env]
     if Ns:                                       # swarm-size randomisation (one N per iteration)
         envs = [LAWNEnv(from_dict(EnvConfig, {**to_dict(ec), "N": n}),
@@ -78,10 +99,12 @@ def main(argv=None):
     if a.tb:
         from torch.utils.tensorboard import SummaryWriter
         writer = SummaryWriter(out)
-    log_f = open(os.path.join(out, "progress.csv"), "w", newline="")
+    log_f = open(os.path.join(out, "progress.csv"), "a" if start else "w", newline="")
     log_w = None
-    t0 = time.time()
-    for it in range(tc.iters):
+    if start and old_fields:
+        log_w = csv.DictWriter(log_f, fieldnames=old_fields, extrasaction="ignore")
+    t0 = time.time() - 60 * t_prev
+    for it in range(start, tc.iters):
         trainer.env = envs[it % len(envs)]
         w_frac = min(1.0, it / tc.sep_warmup) if tc.sep_warmup > 0 else 1.0
         for e_ in envs:                          # separation curriculum (training envs only)

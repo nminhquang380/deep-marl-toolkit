@@ -3,7 +3,7 @@
 #   marginal (Eq. (14)) mu in {2.25, 9} (mu = 4.5 from part A); lost RBs mu in {2.25, 4.5, 9};
 #   indicator mu in {5.5, 11, 22}; normalised shortfall mu in {50, 100, 200}
 #   Compare penalties through the P_out-detour trade-off (J is not comparable across penalties).
-# Usage (inside tmux): bash gtmarl/scripts/sweepC.sh      Re-run the same command to resume.
+# IT = 1200 (sweep_lib default). Usage (inside tmux): bash gtmarl/scripts/sweepC.sh      Re-run the same command to resume.
 source "$(dirname "${BASH_SOURCE[0]}")/sweep_lib.sh"
 setup ${1:-$DATA/sweep/C}
 log "part C: training (IT=$IT, TX=$TX)"

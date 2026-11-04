@@ -83,12 +83,13 @@ encoder diagnostics, the MAPPO fix (critic warm-up) and zero-shot transfer.
 ## Final sweep (Nov 2026): four resumable parts
 
 Run each part inside tmux; re-running the same command resumes it (finished runs, evaluations and
-BR-gap files are skipped). Defaults: N = 50, IT = 800, `n_envs=16 epochs=4`, separation curriculum
+BR-gap files are skipped). `python -m gtmarl.train --resume RUN_DIR --iters K` continues a run. Defaults: N = 50, IT = 1200 (part A: 800, extended to 1600), `n_envs=16 epochs=4`, separation curriculum
 (`sep_warmup=200`: w_sep ramps from 0, the evaluated game is unchanged).
 
 | script | content | jobs (threads) |
 |---|---|---|
 | `sweepA.sh` | V-B/V-C: egat_cc vs ippo_mlp x5 seeds at N = 50 (+ transfer), egat_cc vs mappo_egat at N = 30, BR gaps | 14 (~23) |
+| `sweepA_ext.sh` | continue part A main runs to 1600 iterations (IPPO-MLP not converged at 800); MAPPO fine-tuned from egat_cc at N = 50; egat_cc at 1200 iterations as reference for B-D | 12 (~19) |
 | `sweepB.sh` | V-D: N in {40, 60}; V-E: eta in {1.2, 2, 3} | 14 (~24) |
 | `sweepC.sh` | V-F: penalties x weights (P_out-detour trade-off) | 11 (~22) |
 | `sweepD.sh` | V-F ablations (local critic, mean aggregation, star graph, no velocity, no shaping), R_min | 11 (~22) |
