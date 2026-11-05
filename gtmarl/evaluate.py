@@ -32,6 +32,7 @@ import traceback
 
 from .heuristics import POLICIES, escape_deadlock, run_heuristic
 from .ppo import build_model, evaluate_model, rollout, spec
+from .torch_env import make_env
 
 
 def load_run(run: str, ckpt: str = "model_last.pt", device: str = "cpu"):
@@ -99,6 +100,7 @@ def main(argv=None):
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("--deterministic", action="store_true")
     p.add_argument("--device", default="cpu", help="cpu | cuda")
+    p.add_argument("--backend", default="numpy", help="environment of learned policies: numpy | torch")
     p.add_argument("--traj", default=None, help="save one episode of trajectories (first run / heuristic)")
     p.add_argument("--out", default=None)
     a = p.parse_args(argv)
@@ -142,7 +144,7 @@ def main(argv=None):
             try:
                 ec = apply_overrides(from_dict(EnvConfig, vars(ec0)), a.env)
                 ec.N = N
-                env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
+                env = make_env(ec, a.n_envs, a.seed, a.backend, a.device)
                 if a.traj:
                     env1 = LAWNEnv(ec, n_envs=1, seed=a.seed)
                     rollout(env1, model, torch.device(a.device), deterministic=a.deterministic,

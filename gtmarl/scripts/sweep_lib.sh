@@ -6,13 +6,15 @@ DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"
 IT=${IT:-1200}; TH_G=${TH_G:-2}; TX=${TX:-"n_envs=16 epochs=4"}
 EV_EP=${EV_EP:-1024}
 BR_ENVS=${BR_ENVS:-32}; BR_IT=${BR_IT:-100}; BR_VAL=${BR_VAL:-512}; BR_TEST=${BR_TEST:-2048}; BR_TH=${BR_TH:-4}
-# GPU: DEV=cuda puts EGAT-based training, resumed runs, BR gaps and learned-policy evaluation on the GPUs
-# listed in GPUS (round robin, one CUDA_VISIBLE_DEVICES per job); IPPO-MLP and heuristics stay on CPU.
+# GPU: DEV=cuda runs every learner (training, resumed runs, BR gaps, evaluation of learned policies) with
+# the torch environment on the GPUs listed in GPUS (round robin, one CUDA_VISIBLE_DEVICES per job, one CPU
+# thread per job); heuristics stay on the NumPy environment.
 DEV=${DEV:-cpu}; GPUS=(${GPUS:-1 2 3}); _GI=0
 gpu() {  # sets GPU_ENV / GPU_ARG for the next job ("" on CPU)
   GPU_ENV=""; GPU_ARG=""; GPU_FLAG=""
   if [ "$DEV" = cuda ]; then
-    GPU_ENV="CUDA_VISIBLE_DEVICES=${GPUS[$((_GI % ${#GPUS[@]}))]}"; GPU_ARG="device=cuda"; GPU_FLAG="--device cuda"
+    GPU_ENV="CUDA_VISIBLE_DEVICES=${GPUS[$((_GI % ${#GPUS[@]}))]}"; GPU_ARG="device=cuda env_backend=torch"
+    GPU_FLAG="--device cuda --backend torch"
     _GI=$((_GI + 1))
   fi
 }
@@ -30,7 +32,8 @@ log() { echo "[$(date)] $*" | tee -a "$L/night.log"; }
 # train SUBDIR ALGO SEED [TAG] [ENV overrides...]   (background job; EGAT-based algos get TH_G threads)
 train() {
   local sub=$1 algo=$2 seed=$3 tag=${4:-}; shift 4 2>/dev/null || shift $#
-  local th=1; GPU_ENV=""; GPU_ARG=""; case $algo in egat*|mappo_egat|gippo_cc) th=$TH_G; gpu;; esac
+  local th=1; GPU_ENV=""; GPU_ARG=""; case $algo in egat*|mappo_egat|gippo_cc) th=$TH_G;; esac
+  gpu; [ -n "$GPU_ENV" ] && th=1
   local name="${sub}_${algo}_s${seed}${tag:+_$tag}"
   local envarg=""; [ $# -gt 0 ] && envarg="--env $*"
   env $GPU_ENV nice -n 10 python -m gtmarl.train --skip_done --train threads=$th $TX $GPU_ARG --iters $IT --algo $algo --seed $seed \
@@ -60,7 +63,8 @@ evaluate() {
 resume() {
   local run=$1 iters=$2
   [ -f "$run/model_last.pt" ] || { log "cannot resume $run (no checkpoint)"; return; }
-  local th=1; GPU_ENV=""; GPU_ARG=""; case $(basename $run) in egat*|mappo_egat*|gippo_cc*) th=$TH_G; gpu;; esac
+  local th=1; GPU_ENV=""; GPU_ARG=""; case $(basename $run) in egat*|mappo_egat*|gippo_cc*) th=$TH_G;; esac
+  gpu; [ -n "$GPU_ENV" ] && th=1
   env $GPU_ENV nice -n 10 python -m gtmarl.train --resume $run --skip_done --train threads=$th $TX $GPU_ARG ent_coef=0.001 \
     --iters $iters > $L/resume_$(basename $run).log 2>&1 &
 }

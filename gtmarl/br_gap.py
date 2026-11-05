@@ -36,20 +36,23 @@ from .env import LAWNEnv
 from .evaluate import load_run
 from .models import ActorCritic
 from .ppo import PPOTrainer, rollout
+from .torch_env import make_env
 
 VAL_SEED, TEST_SEED = 778, 777
+BACKEND = ["numpy"]                      # environment backend of this process (set by --backend)
+_np = lambda x: x.detach().cpu().numpy() if torch.is_tensor(x) else x
 
 
 @torch.no_grad()
 def agent0_costs(ec, learner, opponent, n_episodes, n_envs, seed, device=torch.device("cpu")):
     """Per-episode cost and arrival of UAV 0 (same missions for the same seed)."""
-    env = LAWNEnv(ec, n_envs=n_envs, seed=seed)
+    env = make_env(ec, n_envs, seed, BACKEND[0], device)
     costs, succ = [], []
     for _ in range(max(1, n_episodes // n_envs)):
         rollout(env, learner, device, opponent=opponent, learner_agents=np.array([0]),
                 with_value=False)
-        costs.append(env.stat_cost[:, 0].copy())
-        succ.append(env.arrived[:, 0].copy())
+        costs.append(_np(env.stat_cost[:, 0]).copy())
+        succ.append(_np(env.arrived[:, 0]).copy())
     return np.concatenate(costs), np.concatenate(succ)
 
 
@@ -67,6 +70,7 @@ def main(argv=None):
     p.add_argument("--out", default=None)
     p.add_argument("--threads", type=int, default=1)
     p.add_argument("--device", default="cpu", help="cpu | cuda")
+    p.add_argument("--backend", default="numpy", help="numpy | torch (environment on --device)")
     a = p.parse_args(argv)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
@@ -95,7 +99,8 @@ def main(argv=None):
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
     tc.device = a.device
     tc.ent_coef = tc.ent_coef_final
-    env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
+    BACKEND[0] = a.backend
+    env = make_env(ec, tc.n_envs, a.seed + 100, a.backend, a.device)
     sp = {"nbr": policy.nbr, "central": False, "team": False, "aux": False}   # own reward, own critic
     tr = PPOTrainer(tc0.algo, env, tc, model=learner, opponent=opponent, learner_agents=np.array([0]),
                     sp=sp)

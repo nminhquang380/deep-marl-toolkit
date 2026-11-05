@@ -20,6 +20,7 @@ import torch
 from .config import EnvConfig, TrainConfig, apply_overrides, from_dict, to_dict
 from .env import LAWNEnv
 from .ppo import ALGO_NAMES, PPOTrainer, evaluate_model
+from .torch_env import make_env
 
 
 def run_dir(tc: TrainConfig, ec: EnvConfig) -> str:
@@ -80,8 +81,9 @@ def main(argv=None):
     Ns = [int(x) for x in str(tc.N_set).replace(";", ",").split(",") if x] if tc.N_set else []
     if Ns:
         ec.state_N = max(Ns + [ec.N])            # one critic input size for every swarm size
-    env = LAWNEnv(copy.deepcopy(ec), n_envs=tc.n_envs, seed=tc.seed)   # own config: curriculum below
-    eval_env = LAWNEnv(ec, n_envs=tc.n_envs, seed=10_000 + tc.seed)
+    mk = lambda c, s: make_env(c, tc.n_envs, s, tc.env_backend, tc.device)
+    env = mk(copy.deepcopy(ec), tc.seed)                      # own config: curriculum below
+    eval_env = mk(ec, 10_000 + tc.seed)
     with open(os.path.join(out, "config.json"), "w") as f:
         json.dump({"env": to_dict(ec), "train": to_dict(tc), "radio": env.radio.summary(),
                    "K_eff": env.K, "resumed_at": start}, f, indent=2, default=str)
@@ -92,8 +94,7 @@ def main(argv=None):
         trainer.it = start
     envs = [env]
     if Ns:                                       # swarm-size randomisation (one N per iteration)
-        envs = [LAWNEnv(from_dict(EnvConfig, {**to_dict(ec), "N": n}),
-                        n_envs=tc.n_envs, seed=tc.seed + 7 * k) for k, n in enumerate(Ns)]
+        envs = [mk(from_dict(EnvConfig, {**to_dict(ec), "N": n}), tc.seed + 7 * k) for k, n in enumerate(Ns)]
         trainer.env = envs[0]
     writer = None
     if a.tb:

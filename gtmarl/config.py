@@ -126,6 +126,7 @@ class TrainConfig:
     hidden: int = 128
     emb_dim: int = 64
     device: str = "cpu"
+    env_backend: str = "numpy"  # "numpy" (LAWNEnv, CPU) | "torch" (TorchLAWNEnv on `device`, e.g. the GPU)
     threads: int = 1
     eval_every: int = 50
     eval_episodes: int = 64

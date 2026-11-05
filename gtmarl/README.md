@@ -96,6 +96,14 @@ BR-gap files are skipped). `python -m gtmarl.train --resume RUN_DIR --iters K` c
 
 Results: `gtmarl/data/sweep/{A,B,C,D}/summary.txt` (tables, BR gaps, learning curves).
 
+GPU environment (branch `gtmarl-gpu-env`): `torch_env.TorchLAWNEnv` is a tensor implementation of
+the environment, numerically equivalent to `env.LAWNEnv` (tests/test_torch_env.py: same missions and
+actions give the same costs, rewards, observations up to the order of equidistant neighbours, and
+metrics). With `env_backend=torch device=cuda`, `ppo.rollout_torch` keeps the environment, the
+networks and the buffers on the GPU and copies the batch to the host once per iteration; training,
+BR gaps (`--backend torch`) and evaluation (`--backend torch`) all use it. `DEV=cuda` in the sweep
+scripts selects it for every learner.
+
 GPU: `bash gtmarl/scripts/gpu_check.sh 1` first (CUDA usable? GPU vs CPU speed; BR / evaluation on GPU;
 unit tests). If it passes, run any part with `DEV=cuda GPUS="1 2 3" bash gtmarl/scripts/sweepB.sh`:
 EGAT-based training, resumed runs, BR gaps and learned-policy evaluation then go round robin over

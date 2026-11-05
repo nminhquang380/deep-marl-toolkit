@@ -75,6 +75,53 @@ def _t(x, device, dtype=torch.float32):
 
 
 @torch.no_grad()
+def rollout_torch(env, model: ActorCritic, device, opponent: Optional[ActorCritic] = None,
+                  learner_agents: Optional[np.ndarray] = None, deterministic: bool = False,
+                  with_value: bool = True) -> Dict:
+    """rollout() for TorchLAWNEnv: environment, networks and buffers stay on the device; the batch
+    is copied to host memory once at the end (same output as rollout())."""
+    o = env.reset()
+    E, N, dev = env.E, env.N, env.dev
+    lmask = torch.ones(N, dtype=torch.bool, device=dev)
+    if opponent is not None:
+        lmask = torch.zeros(N, dtype=torch.bool, device=dev)
+        lmask[torch.as_tensor(learner_agents, device=dev)] = True
+    nl = int(lmask.sum())
+    keys = ("obs", "state", "mask", "act", "logp", "val", "rew", "active", "dem_next")
+    buf = {k: [] for k in keys}
+    while not bool(env.done.all()):
+        obs, mask, st = o["obs"], o["mask"], o["state"]
+        a = torch.zeros(E, N, dtype=torch.long, device=dev)
+        logp = torch.zeros(E, N, device=dev)
+        val = torch.zeros(E, N, device=dev)
+        def run(m, sel, need_v):
+            n = int(sel.sum())
+            ob = obs[:, sel].reshape(E * n, -1)
+            ms = mask[:, sel].reshape(E * n, -1)
+            ss = st[:, None, :].expand(E, n, st.shape[-1]).reshape(E * n, -1)
+            d, v, _ = m.forward_all(ob, ms, ss, with_value=need_v)
+            ai = d.probs.argmax(-1) if deterministic else d.sample()
+            return ai.view(E, n), d.log_prob(ai).view(E, n), v.view(E, n)
+        if opponent is not None and nl < N:
+            a_op, _, _ = run(opponent, ~lmask, False)
+            a[:, ~lmask] = a_op
+        a_l, lp_l, v_l = run(model, lmask, with_value)
+        a[:, lmask], logp[:, lmask] = a_l, lp_l
+        if with_value:
+            val[:, lmask] = model.vnorm.denormalize(v_l)
+        nxt = env.step(a)
+        buf["obs"].append(obs); buf["state"].append(st); buf["mask"].append(mask)
+        buf["act"].append(a); buf["logp"].append(logp); buf["val"].append(val)
+        buf["rew"].append(nxt["reward"]); buf["active"].append(nxt["active_before"])
+        buf["dem_next"].append((env.D / env.K).float())
+        o = nxt
+    out = {k: torch.stack(v).cpu().numpy() for k, v in buf.items()}
+    out["learner"] = lmask.cpu().numpy()
+    out["metrics"] = env.episode_metrics()
+    return out
+
+
+@torch.no_grad()
 def rollout(env: LAWNEnv, model: ActorCritic, device, opponent: Optional[ActorCritic] = None,
             learner_agents: Optional[np.ndarray] = None, deterministic: bool = False,
             with_value: bool = True) -> Dict:
@@ -83,6 +130,8 @@ def rollout(env: LAWNEnv, model: ActorCritic, device, opponent: Optional[ActorCr
     If ``opponent`` is given, agents not in ``learner_agents`` act with the frozen
     opponent policy (used for the best-response gap).
     """
+    if getattr(env, "is_torch", False):
+        return rollout_torch(env, model, device, opponent, learner_agents, deterministic, with_value)
     o = env.reset()
     E, N = env.E, env.N
     buf = {k: [] for k in ("obs", "state", "mask", "act", "logp", "val", "rew", "active", "dem_next")}
