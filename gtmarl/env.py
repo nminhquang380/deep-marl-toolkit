@@ -158,6 +158,12 @@ class LAWNEnv:
                                              indexing="ij"), -1).reshape(-1, 3)
         self._origin_pool = self._make_origin_pool()
         self.tries = 40
+        # integer offsets o with ||o|| < sep_init: voxels a placed UAV blocks for the others. Evaluated with
+        # the same norm as the full-grid test, so the occupancy-grid samplers below draw identical episodes
+        r = int(np.ceil(max(self.sep_init, 0.0)))
+        off = np.stack(np.meshgrid(*(np.arange(-r, r + 1),) * 3, indexing="ij"), -1).reshape(-1, 3)
+        self._ball = off[np.linalg.norm(off, axis=1) < self.sep_init]
+        self._grid = (cfg.W, cfg.R, cfg.H)
 
     # ------------------------------------------------------------------ reset
     def _make_origin_pool(self):
@@ -184,20 +190,30 @@ class LAWNEnv:
                 return o
         raise RuntimeError("depot too small for N; increase depot_radius / depot_layers")
 
+    def _block(self, blocked, v):
+        """Marks the voxels within sep_init of v (one placed UAV) on the occupancy grid."""
+        p = v + self._ball
+        ok = np.all((p >= 0) & (p < self._grid), axis=1)
+        blocked[tuple(p[ok].T)] = True
+
     def _sample_origins_once(self):
-        N, V, sep = self.N, self._all_vox, self.sep_init
+        """Random sequential packing; a voxel is admissible iff it is >= sep_init from every placed UAV."""
+        N, V = self.N, self._all_vox
         n_pool = len(self._origin_pool)
         counts = np.full(n_pool, N // n_pool)
         counts[self.rng.permutation(n_pool)[: N % n_pool]] += 1
+        blocked = np.zeros(self._grid, bool)
+        flat = blocked.reshape(-1)                        # view; flat index == row of _all_vox
         orig = []
         for pool, c in zip(self._origin_pool, counts):
             got = 0
             if c == 0:
                 continue
             for idx in self.rng.permutation(pool):
-                v = V[idx]
-                if not orig or np.min(np.linalg.norm(np.asarray(orig) - v, axis=1)) >= sep:
+                if not flat[idx]:
+                    v = V[idx]
                     orig.append(v)
+                    self._block(blocked, v)
                     got += 1
                     if got == c:
                         break
@@ -206,16 +222,26 @@ class LAWNEnv:
         return np.asarray(orig)[self.rng.permutation(N)]
 
     def _sample_dests(self, orig):
-        cfg, N, V, sep = self.cfg, self.N, self._all_vox, self.sep_init
-        free = np.min(np.linalg.norm(V[:, None, :] - orig[None], axis=-1), axis=1) >= sep
+        """Destinations >= sep_init apart and from all origins, and >= min_od_l1 (L1) from their own origin."""
+        cfg, N, V = self.cfg, self.N, self._all_vox
+        blocked = np.zeros(self._grid, bool)
+        for o in orig:
+            self._block(blocked, o)
+        free = ~blocked
+        ax = [np.arange(n) for n in self._grid]
         dest = []
         for i in range(N):
-            idx = np.flatnonzero(free & (np.abs(V - orig[i]).sum(1) >= cfg.min_od_l1))
+            o = orig[i]
+            l1 = np.abs(ax[0] - o[0])[:, None, None] + np.abs(ax[1] - o[1])[None, :, None] \
+                + np.abs(ax[2] - o[2])[None, None, :]
+            idx = np.flatnonzero(free & (l1 >= cfg.min_od_l1))          # C order == row order of _all_vox
             if len(idx) == 0:
                 return None
             v = V[self.rng.choice(idx)]
             dest.append(v)
-            free &= np.linalg.norm(V - v, axis=1) >= sep
+            p = v + self._ball
+            ok = np.all((p >= 0) & (p < self._grid), axis=1)
+            free[tuple(p[ok].T)] = False
         return np.asarray(dest)
 
     def _sample_episode(self):
