@@ -14,20 +14,24 @@ CUDA_VISIBLE_DEVICES=$G python -c "import torch, sys; sys.exit(0 if torch.cuda.i
 echo "== 2. unit tests (torch env on CPU and GPU)"
 CUDA_VISIBLE_DEVICES=$G python -m pytest -q gtmarl/tests 2>&1 | tail -1
 echo "== 3. training speed (3 iterations, N = 50); runs one after the other"
-TR="python -m gtmarl.train --iters 3 --train n_envs=16 epochs=4 eval_every=1000 save_every=3"
-speed() {  # label seed algo env-and-device args
-  local lab=$1 s=$2 algo=$3; shift 3
-  CUDA_VISIBLE_DEVICES=$G $TR --algo $algo --seed $s --out $OUT "$@" > $OUT/$lab.log 2>&1 || { echo "  $lab FAILED"; tail -3 $OUT/$lab.log; return; }
-  python - "$OUT/${algo}_N50_M4_s$s/progress.csv" "$lab" <<'PY'
+TR="python -m gtmarl.train --iters 3"
+C="n_envs=16 epochs=4 eval_every=1000 save_every=3"   # one --train list per command (a second one would replace it)
+speed() {  # tag label seed algo [train/env args...]   (tag: file name, label: printed)
+  local tag=$1 lab=$2 s=$3 algo=$4; shift 4
+  local log="$OUT/speed_$tag.log"
+  if ! CUDA_VISIBLE_DEVICES=$G $TR --algo $algo --seed $s --out $OUT "$@" > "$log" 2>&1; then
+    echo "  $lab: FAILED"; tail -n 5 "$log"; return
+  fi
+  python - "$(ls -d $OUT/${algo}_N*_s$s | head -n 1)/progress.csv" "$lab" <<'PY'
 import csv, sys
-r = list(csv.DictReader(open(sys.argv[1]))); print(f"  {sys.argv[2]:32s} {float(r[-1]['time_min']) / len(r):.3f} min/iter")
+r = list(csv.DictReader(open(sys.argv[1]))); print(f"  {sys.argv[2]:30s} {float(r[-1]['time_min']) / len(r):.3f} min/iter")
 PY
 }
-speed "egat_cc  numpy env + CPU"    11 egat_cc  --train threads=2
-speed "egat_cc  numpy env + GPU"    12 egat_cc  --train threads=1 device=cuda
-speed "egat_cc  torch env on GPU"   13 egat_cc  --train threads=1 device=cuda env_backend=torch
-speed "ippo_mlp numpy env + CPU"    14 ippo_mlp --train threads=1
-speed "ippo_mlp torch env on GPU"   15 ippo_mlp --train threads=1 device=cuda env_backend=torch
+speed egat_np_cpu  "egat_cc,  numpy env + CPU"  11 egat_cc  --train $C threads=2
+speed egat_np_gpu  "egat_cc,  numpy env + GPU"  12 egat_cc  --train $C threads=1 device=cuda
+speed egat_t_gpu   "egat_cc,  torch env on GPU" 13 egat_cc  --train $C threads=1 device=cuda env_backend=torch
+speed mlp_np_cpu   "ippo_mlp, numpy env + CPU"  14 ippo_mlp --train $C threads=1
+speed mlp_t_gpu    "ippo_mlp, torch env on GPU" 15 ippo_mlp --train $C threads=1 device=cuda env_backend=torch
 echo "== 4. BR gap and evaluation with the torch env on the GPU"
 CUDA_VISIBLE_DEVICES=$G python -m gtmarl.br_gap --device cuda --backend torch --threads 1 \
   --run $OUT/egat_cc_N50_M4_s13 --iters 4 --n_snap 1 --n_envs 32 --val_episodes 64 --eval_episodes 64 \
