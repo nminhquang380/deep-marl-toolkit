@@ -96,6 +96,12 @@ BR-gap files are skipped). `python -m gtmarl.train --resume RUN_DIR --iters K` c
 
 Results: `gtmarl/data/sweep/{A,B,C,D}/summary.txt` (tables, BR gaps, learning curves).
 
+GPU: `bash gtmarl/scripts/gpu_check.sh 1` first (CUDA usable? GPU vs CPU speed; BR / evaluation on GPU;
+unit tests). If it passes, run any part with `DEV=cuda GPUS="1 2 3" bash gtmarl/scripts/sweepB.sh`:
+EGAT-based training, resumed runs, BR gaps and learned-policy evaluation then go round robin over
+GPUS; IPPO-MLP and heuristics stay on CPU. BR rollouts run the deviator's network on its own rows
+only (~2x faster than before on CPU as well).
+
 ## Default setting (Table I)
 
 Values marked † are not fixed by v22 and were chosen here; please confirm.

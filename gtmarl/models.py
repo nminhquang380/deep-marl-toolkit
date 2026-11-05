@@ -200,7 +200,7 @@ class ActorCritic(nn.Module):
         z = self._z(obs)
         d = torch.distributions.Categorical(logits=self.actor(z).masked_fill(~mask, -1e9))
         if not with_value:                 # execution: the critic is not used (and a centralised
-            return d, torch.zeros(obs.shape[:-1]), z   # critic is tied to the training N)
+            return d, torch.zeros(obs.shape[:-1], device=obs.device), z   # critic is tied to the training N)
         if self.central:
             st = state if state.dim() == obs.dim() else \
                 state.unsqueeze(-2).expand(*obs.shape[:-1], state.shape[-1])

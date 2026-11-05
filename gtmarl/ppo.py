@@ -95,19 +95,27 @@ def rollout(env: LAWNEnv, model: ActorCritic, device, opponent: Optional[ActorCr
         act_np = env.active
         rows = np.nonzero(act_np.reshape(-1))[0]
         flat = lambda x: x.reshape(E * N, *x.shape[2:])
-        obs_t = _t(flat(o["obs"])[rows], device)
-        mask_t = _t(flat(o["mask"])[rows], device, torch.bool)
-        state_t = _t(o["state"][rows // N], device)
-        d, v_n, _ = model.forward_all(obs_t, mask_t, state_t, with_value=with_value)
-        a_r = d.probs.argmax(-1) if deterministic else d.sample()
+        a_full = np.zeros(E * N, np.int64)
+        lp_full = np.zeros(E * N, np.float32)
+        v_full = np.zeros(E * N, np.float32)
         if opponent is not None:
-            d_op, _, _ = opponent.forward_all(obs_t, mask_t, state_t, with_value=False)
-            a_op = d_op.probs.argmax(-1) if deterministic else d_op.sample()
-            a_r = torch.where(_t(lmask[rows % N], device, torch.bool), a_r, a_op)
-        logp_r = d.log_prob(a_r)
-        a_full = np.zeros(E * N, np.int64); a_full[rows] = a_r.cpu().numpy()
-        lp_full = np.zeros(E * N, np.float32); lp_full[rows] = logp_r.cpu().numpy()
-        v_full = np.zeros(E * N, np.float32); v_full[rows] = model.vnorm.denormalize(v_n).cpu().numpy()
+            # BR rollouts: the deviator's network runs on its own rows only, the frozen policy on the rest
+            r_op = rows[~lmask[rows % N]]
+            if len(r_op):
+                d_op, _, _ = opponent.forward_all(_t(flat(o["obs"])[r_op], device),
+                                                  _t(flat(o["mask"])[r_op], device, torch.bool),
+                                                  _t(o["state"][r_op // N], device), with_value=False)
+                a_full[r_op] = (d_op.probs.argmax(-1) if deterministic else d_op.sample()).cpu().numpy()
+            rows = rows[lmask[rows % N]]
+        if len(rows):
+            obs_t = _t(flat(o["obs"])[rows], device)
+            mask_t = _t(flat(o["mask"])[rows], device, torch.bool)
+            state_t = _t(o["state"][rows // N], device)
+            d, v_n, _ = model.forward_all(obs_t, mask_t, state_t, with_value=with_value)
+            a_r = d.probs.argmax(-1) if deterministic else d.sample()
+            a_full[rows] = a_r.cpu().numpy()
+            lp_full[rows] = d.log_prob(a_r).cpu().numpy()
+            v_full[rows] = model.vnorm.denormalize(v_n).cpu().numpy()
         if model.central and with_value:   # team critics need V(s, o_i) of every UAV of a live episode (cheap: no encoder)
             rv = np.nonzero(np.repeat(~env.done, N))[0]
             v_full[rv] = model.vnorm.denormalize(model.value(_t(flat(o["obs"])[rv], device),
@@ -229,7 +237,7 @@ class PPOTrainer:
                 loss = tc.vf_coef * v_loss
                 if actor_on:
                     loss = loss + pg - ent_coef * ent
-                aux_l = torch.zeros(())
+                aux_l = torch.zeros((), device=dev)
                 if use_aux:
                     aux_l = ((self.model.aux_head(z) - a_tgt[j]) ** 2).mean()
                     loss = loss + tc.aux_coef * aux_l

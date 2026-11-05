@@ -77,8 +77,9 @@ def heuristic_traj(ec: EnvConfig, name: str, seed: int, path: str):
 def inference_us_per_uav(env: LAWNEnv, model, reps: int = 50) -> float:
     """Wall-clock time of one decentralised decision (encoder + actor) per UAV [us]."""
     o = env.reset()
-    obs = torch.as_tensor(o["obs"][0])               # (N, obs_dim): one forward per UAV, batched
-    mask = torch.as_tensor(o["mask"][0])
+    dev = next(model.parameters()).device
+    obs = torch.as_tensor(o["obs"][0], device=dev)   # (N, obs_dim): one forward per UAV, batched
+    mask = torch.as_tensor(o["mask"][0], device=dev)
     model.dist(obs, mask).sample()
     t = time.perf_counter()
     for _ in range(reps):
@@ -97,6 +98,7 @@ def main(argv=None):
     p.add_argument("--n_envs", type=int, default=64)
     p.add_argument("--seed", type=int, default=12345)
     p.add_argument("--deterministic", action="store_true")
+    p.add_argument("--device", default="cpu", help="cpu | cuda")
     p.add_argument("--traj", default=None, help="save one episode of trajectories (first run / heuristic)")
     p.add_argument("--out", default=None)
     a = p.parse_args(argv)
@@ -131,6 +133,7 @@ def main(argv=None):
             continue
         try:
             ec0, tc, model = load_run(run, a.ckpt)
+            model = model.to(torch.device(a.device))
         except Exception:
             traceback.print_exc(); failed.append(run); continue
         for N in (a.N or [ec0.N]):
@@ -142,12 +145,12 @@ def main(argv=None):
                 env = LAWNEnv(ec, n_envs=a.n_envs, seed=a.seed)
                 if a.traj:
                     env1 = LAWNEnv(ec, n_envs=1, seed=a.seed)
-                    rollout(env1, model, torch.device("cpu"), deterministic=a.deterministic,
+                    rollout(env1, model, torch.device(a.device), deterministic=a.deterministic,
                             with_value=False)
                     save_traj(env1, a.traj)
                     print("saved", a.traj)
                     a.traj = None
-                m = evaluate_model(env, model, torch.device("cpu"), a.episodes, a.deterministic)
+                m = evaluate_model(env, model, torch.device(a.device), a.episodes, a.deterministic)
                 m["infer_us"] = inference_us_per_uav(LAWNEnv(ec, n_envs=1, seed=a.seed), model)
             except Exception:
                 traceback.print_exc(); failed.append(f"{run} N={N}"); continue

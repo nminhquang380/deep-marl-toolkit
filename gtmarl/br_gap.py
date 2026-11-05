@@ -41,12 +41,12 @@ VAL_SEED, TEST_SEED = 778, 777
 
 
 @torch.no_grad()
-def agent0_costs(ec, learner, opponent, n_episodes, n_envs, seed):
+def agent0_costs(ec, learner, opponent, n_episodes, n_envs, seed, device=torch.device("cpu")):
     """Per-episode cost and arrival of UAV 0 (same missions for the same seed)."""
     env = LAWNEnv(ec, n_envs=n_envs, seed=seed)
     costs, succ = [], []
     for _ in range(max(1, n_episodes // n_envs)):
-        rollout(env, learner, torch.device("cpu"), opponent=opponent, learner_agents=np.array([0]),
+        rollout(env, learner, device, opponent=opponent, learner_agents=np.array([0]),
                 with_value=False)
         costs.append(env.stat_cost[:, 0].copy())
         succ.append(env.arrived[:, 0].copy())
@@ -66,6 +66,7 @@ def main(argv=None):
     p.add_argument("--train", nargs="*", default=[], help="TrainConfig overrides for the deviator")
     p.add_argument("--out", default=None)
     p.add_argument("--threads", type=int, default=1)
+    p.add_argument("--device", default="cpu", help="cpu | cuda")
     a = p.parse_args(argv)
     torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
@@ -81,6 +82,9 @@ def main(argv=None):
         shared += [k for k in own_sd if k.startswith(("critic.", "vnorm."))]
     own_sd.update({k: src[k] for k in shared})
     learner.load_state_dict(own_sd)
+    dev = torch.device(a.device)
+    policy = policy.to(dev)
+    learner = learner.to(dev)
     opponent = copy.deepcopy(policy).eval()
 
     # fine-tuning defaults: one agent's samples per iteration -> smaller steps
@@ -89,6 +93,7 @@ def main(argv=None):
     tc = TrainConfig(lr=1e-4, epochs=4, minibatches=2, critic_warmup=20)
     tc = apply_overrides(tc, a.train)
     tc.iters, tc.n_envs, tc.seed = a.iters, a.n_envs, a.seed
+    tc.device = a.device
     tc.ent_coef = tc.ent_coef_final
     env = LAWNEnv(ec, n_envs=tc.n_envs, seed=a.seed + 100)
     sp = {"nbr": policy.nbr, "central": False, "team": False, "aux": False}   # own reward, own critic
@@ -97,7 +102,7 @@ def main(argv=None):
 
     # candidate 0 = the trained policy (no deviation)
     t0 = time.time()
-    c0, _ = agent0_costs(ec, policy, opponent, a.val_episodes, a.n_envs, VAL_SEED)
+    c0, _ = agent0_costs(ec, policy, opponent, a.val_episodes, a.n_envs, VAL_SEED, dev)
     print(f"BR start: val J0(policy) {c0.mean():.4f} ({(time.time() - t0) / 60:.1f} min)", flush=True)
     best_val, best_it, best_state = float(c0.mean()), 0, None
     curve = [(0, best_val)]
@@ -107,19 +112,19 @@ def main(argv=None):
         if (it + 1) % 10 == 0:
             print(f"BR it {it + 1}/{a.iters} ({(time.time() - t0) / 60:.1f} min)", flush=True)
         if (it + 1) % every == 0 or it == a.iters - 1:
-            c, _ = agent0_costs(ec, tr.model, opponent, a.val_episodes, a.n_envs, VAL_SEED)
+            c, _ = agent0_costs(ec, tr.model, opponent, a.val_episodes, a.n_envs, VAL_SEED, dev)
             curve.append((it + 1, float(c.mean())))
             print(f"BR it {it + 1}: val J0 {c.mean():.4f} (policy {curve[0][1]:.4f})", flush=True)
             if c.mean() < best_val:
                 best_val, best_it, best_state = float(c.mean()), it + 1, copy.deepcopy(tr.model.state_dict())
 
     # paired test on fresh missions
-    c_pi, s_pi = agent0_costs(ec, policy, opponent, a.eval_episodes, a.n_envs, TEST_SEED)
+    c_pi, s_pi = agent0_costs(ec, policy, opponent, a.eval_episodes, a.n_envs, TEST_SEED, dev)
     if best_state is None:
         c_br, s_br = c_pi, s_pi
     else:
         learner.load_state_dict(best_state)
-        c_br, s_br = agent0_costs(ec, learner, opponent, a.eval_episodes, a.n_envs, TEST_SEED)
+        c_br, s_br = agent0_costs(ec, learner, opponent, a.eval_episodes, a.n_envs, TEST_SEED, dev)
     d = c_pi - c_br
     j_pi = float(c_pi.mean())
     res = {"run": a.run, "ckpt": a.ckpt, "algo": tc0.algo, "N": ec.N, "seed": a.seed,

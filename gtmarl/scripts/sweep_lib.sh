@@ -6,6 +6,16 @@ DATA="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/data"
 IT=${IT:-1200}; TH_G=${TH_G:-2}; TX=${TX:-"n_envs=16 epochs=4"}
 EV_EP=${EV_EP:-1024}
 BR_ENVS=${BR_ENVS:-32}; BR_IT=${BR_IT:-100}; BR_VAL=${BR_VAL:-512}; BR_TEST=${BR_TEST:-2048}; BR_TH=${BR_TH:-4}
+# GPU: DEV=cuda puts EGAT-based training, resumed runs, BR gaps and learned-policy evaluation on the GPUs
+# listed in GPUS (round robin, one CUDA_VISIBLE_DEVICES per job); IPPO-MLP and heuristics stay on CPU.
+DEV=${DEV:-cpu}; GPUS=(${GPUS:-1 2 3}); _GI=0
+gpu() {  # sets GPU_ENV / GPU_ARG for the next job ("" on CPU)
+  GPU_ENV=""; GPU_ARG=""; GPU_FLAG=""
+  if [ "$DEV" = cuda ]; then
+    GPU_ENV="CUDA_VISIBLE_DEVICES=${GPUS[$((_GI % ${#GPUS[@]}))]}"; GPU_ARG="device=cuda"; GPU_FLAG="--device cuda"
+    _GI=$((_GI + 1))
+  fi
+}
 
 setup() {  # OUT
   OUT=$1; L="$OUT/logs"; R="$OUT/results"; P="$R/parts"
@@ -20,10 +30,10 @@ log() { echo "[$(date)] $*" | tee -a "$L/night.log"; }
 # train SUBDIR ALGO SEED [TAG] [ENV overrides...]   (background job; EGAT-based algos get TH_G threads)
 train() {
   local sub=$1 algo=$2 seed=$3 tag=${4:-}; shift 4 2>/dev/null || shift $#
-  local th=1; case $algo in egat*|mappo_egat|gippo_cc) th=$TH_G;; esac
+  local th=1; GPU_ENV=""; GPU_ARG=""; case $algo in egat*|mappo_egat|gippo_cc) th=$TH_G; gpu;; esac
   local name="${sub}_${algo}_s${seed}${tag:+_$tag}"
   local envarg=""; [ $# -gt 0 ] && envarg="--env $*"
-  nice -n 10 python -m gtmarl.train --skip_done --train threads=$th $TX --iters $IT --algo $algo --seed $seed \
+  env $GPU_ENV nice -n 10 python -m gtmarl.train --skip_done --train threads=$th $TX $GPU_ARG --iters $IT --algo $algo --seed $seed \
     ${tag:+--tag $tag} --out $OUT/$sub $envarg > $L/train_$name.log 2>&1 &
 }
 train_done() {
@@ -41,7 +51,8 @@ evaluate() {
   [ -n "$heur" ] && args="$args --heuristics $heur"
   [ -n "$ns" ] && args="$args --N $ns"
   [ $# -gt 0 ] && args="$args --env $*"
-  nice -n 10 python -m gtmarl.evaluate --episodes $EV_EP ${CKPT:+--ckpt $CKPT} $args --out $out \
+  GPU_ENV=""; GPU_FLAG=""; [ -n "$runs" ] && gpu
+  env $GPU_ENV nice -n 10 python -m gtmarl.evaluate $GPU_FLAG --episodes $EV_EP ${CKPT:+--ckpt $CKPT} $args --out $out \
     > $L/ev_$name.log 2>&1 &
 }
 
@@ -49,8 +60,8 @@ evaluate() {
 resume() {
   local run=$1 iters=$2
   [ -f "$run/model_last.pt" ] || { log "cannot resume $run (no checkpoint)"; return; }
-  local th=1; case $(basename $run) in egat*|mappo_egat*|gippo_cc*) th=$TH_G;; esac
-  nice -n 10 python -m gtmarl.train --resume $run --skip_done --train threads=$th $TX ent_coef=0.001 \
+  local th=1; GPU_ENV=""; GPU_ARG=""; case $(basename $run) in egat*|mappo_egat*|gippo_cc*) th=$TH_G; gpu;; esac
+  env $GPU_ENV nice -n 10 python -m gtmarl.train --resume $run --skip_done --train threads=$th $TX $GPU_ARG ent_coef=0.001 \
     --iters $iters > $L/resume_$(basename $run).log 2>&1 &
 }
 
@@ -59,7 +70,8 @@ br() {
   local out=$R/br_$3.json
   [ -f "$out" ] && return
   [ -f "$1/model_last.pt" ] || { log "skip BR gap for $1 (no checkpoint)"; return; }
-  nice -n 10 python -m gtmarl.br_gap --threads $BR_TH --n_envs $BR_ENVS --val_episodes $BR_VAL \
+  gpu
+  env $GPU_ENV nice -n 10 python -m gtmarl.br_gap $GPU_FLAG --threads $BR_TH --n_envs $BR_ENVS --val_episodes $BR_VAL \
     --eval_episodes $BR_TEST --iters $BR_IT --n_snap 2 --run "$1" --seed $2 --out $out > $L/br_$3.log 2>&1 &
 }
 

@@ -225,3 +225,16 @@ def test_ablations_run(abl):
     if "vel" in abl:
         o = e.reset(); e.step(np.ones((2, 10), int)); o = e._obs()
         assert np.allclose(o["obs"][..., 12:15], 0)
+
+
+@pytest.mark.skipif(not __import__("torch").cuda.is_available(), reason="no CUDA device")
+def test_cuda_train_and_br_rollout():
+    import torch
+    from gtmarl.config import TrainConfig
+    from gtmarl.ppo import PPOTrainer, rollout, build_model
+    e = LAWNEnv(EnvConfig(N=10), n_envs=2, seed=1)
+    tr = PPOTrainer("egat_cc", e, TrainConfig(n_envs=2, epochs=1, minibatches=2, device="cuda"))
+    assert np.isfinite(tr.train_iter()["loss/v_loss"])
+    opp = build_model("egat_cc", e, TrainConfig()).to("cuda").eval()
+    ro = rollout(e, tr.model, torch.device("cuda"), opponent=opp, learner_agents=np.array([0]))
+    assert ro["act"].shape[-1] == 10
