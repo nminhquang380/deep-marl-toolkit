@@ -43,6 +43,13 @@ train_done() {
   wait
   log "training done"
   grep -l -E "Traceback|Error" $L/train_*.log 2>/dev/null | sed 's/^/FAILED: /' | tee -a "$L/night.log"
+  unfinished   # a killed process (OOM, admin) leaves no traceback
+}
+unfinished() {  # run directories without a final checkpoint; re-run the part to redo them
+  for d in "$OUT"/*/*/; do
+    [ -f "$d/config.json" ] && [ ! -f "$d/model_last.pt" ] && echo "UNFINISHED (killed?): $d" | tee -a "$L/night.log"
+  done
+  return 0
 }
 
 # evaluate NAME "RUN GLOBS" "HEURISTICS" "NS" [ENV overrides...]   (background; skipped if the csv exists)
