@@ -9,18 +9,30 @@ import csv
 import glob
 import json
 import os
+import warnings
 from collections import defaultdict
 
 import numpy as np
 
 COLS = ("success", "detour", "p_out", "viol", "los", "nmac", "jain_load", "J", "nbr_mean",
         "F@1.2", "F@1.5")
+VARY = ("eta_eval", "R_min", "penalty", "mu", "w_sep", "d_safe", "ablate", "w_nav", "L")
+SHORT = {"eta_eval": "eta"}
+
+
+def _fmt(v):
+    try:
+        x = float(v)
+        return f"{x / 1e6:g}M" if abs(x) >= 1e5 else f"{x:g}"
+    except (TypeError, ValueError):
+        return str(v)
 
 
 def main(argv=None):
     p = argparse.ArgumentParser()
     p.add_argument("--res", required=True)
     a = p.parse_args(argv)
+    warnings.simplefilter("ignore", RuntimeWarning)          # all-NaN columns (e.g. no successes)
     for f in sorted(glob.glob(os.path.join(a.res, "*.csv"))):
         rows = list(csv.DictReader(open(f)))
         if not rows or "method" not in rows[0]:
@@ -31,17 +43,24 @@ def main(argv=None):
             if r.get("N_train") not in (None, "", "0") and r["N_train"] != r["N"]:
                 key = (key[0] + f"<N{r['N_train']}", key[1], key[2])       # zero-shot transfer
             g[key].append(r)
-        print(f"\n== {os.path.basename(f)}")
-        print(f"{'method':22s} {'N':>3s} {'B':>2s} {'n':>2s} " + " ".join(f"{c:>9s}" for c in COLS))
+        # rows of one method at different settings (e.g. heuristics at several eta or R_min) are kept apart
+        g2 = {}
         for (m, N, B), rs in g.items():
+            vary = [c for c in VARY if len({r.get(c) for r in rs}) > 1]
+            for r in rs:
+                lab = m + ("{" + ",".join(f"{SHORT.get(c, c)}={_fmt(r.get(c))}" for c in vary) + "}" if vary else "")
+                g2.setdefault((lab, N, B), []).append(r)
+        print(f"\n== {os.path.basename(f)}")
+        print(f"{'method':26s} {'N':>3s} {'B':>2s} {'n':>2s} " + " ".join(f"{c:>9s}" for c in COLS))
+        for (m, N, B), rs in g2.items():
             vals, sds = [], []
             for c in COLS:
                 v = np.array([float(r.get(c, "nan") or "nan") for r in rs])
                 vals.append(f"{np.nanmean(v):9.4f}")
                 sds.append(f"{np.nanstd(v, ddof=1):9.4f}" if np.isfinite(v).sum() > 1 else f"{'':9s}")
-            print(f"{m:22s} {N:>3s} {B:>2s} {len(rs):>2d} " + " ".join(vals))
+            print(f"{m:26s} {N:>3s} {B:>2s} {len(rs):>2d} " + " ".join(vals))
             if len(rs) > 1:
-                print(f"{'  +/- (std over seeds)':22s} {'':>3s} {'':>2s} {'':>2s} " + " ".join(sds))
+                print(f"{'  +/- (std over seeds)':26s} {'':>3s} {'':>2s} {'':>2s} " + " ".join(sds))
     brs = sorted(glob.glob(os.path.join(a.res, "br_*.json")))
     if brs:
         print("\n== best-response gap (paired test; gap > 0 means a profitable unilateral deviation)")
