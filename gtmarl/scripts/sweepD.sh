@@ -12,11 +12,15 @@ for s in 0 1; do
   train abl egat_cc $s star ablate=star; train abl egat_cc $s novel ablate=vel
 done
 train abl egat_cc 0 noshape w_nav=0
-for r in 4e6 8e6; do train rmin egat_cc 0 R$r R_min=$r; done
+# w_sep must exceed mu * beta^(L): beta^(L) = 4 / 5 / 7 RBs at R_min = 4 / 6 / 8 Mb/s, so mu * beta^(L) = 31.5 > 30
+# at 8 Mb/s; w_sep = 42 keeps the reference margin (30 / 22.5 = 4/3)
+train rmin egat_cc 0 R4e6 R_min=4e6
+train rmin egat_cc 0 R8e6 R_min=8e6 w_sep=42
 train_done
 log "part D: evaluation"
 evaluate abl_all "$OUT/abl/*" "" ""
-for r in 4e6 8e6; do evaluate rmin_$r "$OUT/rmin/*_R$r" "greedy myopic" "" R_min=$r; done
+evaluate rmin_4e6 "$OUT/rmin/*_R4e6" "greedy myopic" "" R_min=4e6
+evaluate rmin_8e6 "$OUT/rmin/*_R8e6" "greedy myopic" "" R_min=8e6 w_sep=42
 wait; merge abl; merge rmin
 report $OUT/abl $OUT/rmin
 log "part D done"
