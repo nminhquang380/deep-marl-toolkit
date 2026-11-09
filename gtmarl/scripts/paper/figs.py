@@ -21,22 +21,23 @@ os.makedirs(OUT, exist_ok=True)
 plt.rcParams.update({
     "font.family": "serif", "font.serif": ["STIXGeneral", "DejaVu Serif"],
     "mathtext.fontset": "stix", "font.size": 8, "axes.labelsize": 8, "legend.fontsize": 7,
-    "xtick.labelsize": 7, "ytick.labelsize": 7, "axes.linewidth": 0.6, "lines.linewidth": 1.1,
-    "lines.markersize": 4, "grid.linewidth": 0.4, "grid.color": "#d9d9d6", "axes.grid": True,
-    "legend.frameon": True, "legend.framealpha": 0.9, "legend.edgecolor": "#d9d9d6",
+    "xtick.labelsize": 7, "ytick.labelsize": 7, "axes.linewidth": 0.6, "lines.linewidth": 1.4,
+    "lines.markersize": 4.5, "grid.linewidth": 0.5, "grid.color": "#8c8c8c", "grid.linestyle": ":", "axes.grid": True,
+    "legend.frameon": True, "legend.framealpha": 1.0, "legend.edgecolor": "black", "legend.fancybox": False,
     "legend.handlelength": 1.8, "pdf.fonttype": 42, "savefig.bbox": "tight", "savefig.pad_inches": 0.02,
-    "axes.edgecolor": "#52514e", "xtick.color": "#52514e", "ytick.color": "#52514e",
+    "axes.edgecolor": "black", "xtick.color": "black", "ytick.color": "black", "xtick.direction": "in", "ytick.direction": "in", "xtick.top": True, "ytick.right": True,
     "xtick.major.width": 0.6, "ytick.major.width": 0.6,
 })
 COL = 3.5                                   # IEEE single column [in]
-GREEN, RED, GOLD, GRAY, DARK = "#17643a", "#e65a3c", "#cf9a0b", "#8a8984", "#52514e"
+RED, GREEN, BLUE, MAGENTA, ORANGE = "#ff0000", "#00b400", "#0000ff", "#ff00ff", "#ff8c00"
+GRAY, DARK = "#808080", "#000000"
 STY = {  # method -> (label, color, marker, linestyle)
-    "egat_cc": ("EGAT-IPPO", GREEN, "o", "-"),
-    "egat_tr": ("EGAT-IPPO, trained at $N{=}50$", GREEN, "o", "--"),
-    "ippo_mlp": ("IPPO-MLP", RED, "s", "-"),
-    "mappo": ("CTDE-MAPPO", GOLD, "^", "-"),
-    "greedy": ("SP", DARK, "x", ":"),
-    "myopic": ("MBR", GRAY, "d", "-."),
+    "egat_cc": ("EGAT-IPPO", RED, "o", "-"),
+    "egat_tr": ("EGAT-IPPO, trained at $N{=}50$", RED, "o", "--"),
+    "ippo_mlp": ("IPPO-MLP", GREEN, "s", "--"),
+    "mappo": ("CTDE-MAPPO", MAGENTA, "^", "--"),
+    "greedy": ("SP", DARK, "x", "--"),
+    "myopic": ("MBR", BLUE, "d", "--"),
 }
 
 
@@ -115,7 +116,7 @@ def fig_scalability():
         for a, col, sc in ((ax[0], "J", 1.0), (ax[1], "p_out", 100.0)):
             mu = np.array([data[key][N][col].mean() * sc for N in Ns])
             sd = np.array([data[key][N][col].std(ddof=1) * sc if len(data[key][N]) > 1 else 0 for N in Ns])
-            mfc = "white" if key == "egat_tr" else c
+            mfc = c if key == "egat_cc" else "white"
             a.errorbar(Ns, mu, yerr=sd, color=c, marker=m, ls=ls, mfc=mfc, capsize=2, elinewidth=0.6,
                        label=lab, zorder=3 if key.startswith("egat") else 2)
     ax[0].set_ylabel(r"Average cost $\bar{J}$"); ax[1].set_ylabel(r"Outage probability $P_{\mathrm{out}}$ [%]")
@@ -137,15 +138,15 @@ def fig_deadline():
     grid = np.round(np.arange(1.0, 3.01, 0.1), 1)
     fcols = [f"F@{x:.1f}" for x in grid]
     fig, ax = plt.subplots(figsize=(COL, 2.1))
-    shades = {1.2: "#9fd1ae", 1.5: "#4fa36b", 2.0: "#17643a", 3.0: "#0b3a1f"}
+    shades = {1.2: BLUE, 1.5: RED, 2.0: GREEN, 3.0: MAGENTA}
     mk = {1.2: "v", 1.5: "o", 2.0: "s", 3.0: "D"}
     for e in (1.2, 1.5, 2.0, 3.0):
         df = ref if e == 1.5 else eta[(eta.method == "egat_cc") & (np.isclose(eta.eta_eval, e))]
         F = df[fcols].values.mean(0)
-        ax.plot(grid, F, color=shades[e], marker=mk[e], markevery=2, ms=3, label=rf"EGAT-IPPO, $\eta={e:g}$")
-        ax.axvline(e, color=shades[e], lw=0.6, ls=":")
+        ax.plot(grid, F, color=shades[e], marker=mk[e], markevery=2, ms=4, mfc="white" if e != 1.5 else shades[e], label=rf"EGAT-IPPO, $\eta={e:g}$")
+        ax.axvline(e, color=shades[e], lw=0.7, ls=":")
     sp = eta[(eta.method == "greedy")].iloc[0]
-    ax.plot(grid, sp[fcols].values.astype(float), color=DARK, ls=":", marker="x", markevery=2, ms=3, label="SP (any $\\eta$)")
+    ax.plot(grid, sp[fcols].values.astype(float), color=DARK, ls="--", marker="x", markevery=2, ms=4, label="SP (any $\\eta$)")
     ax.set_xlabel(r"Normalized completion time $T_i / T_i^{\min}$")
     ax.set_ylabel(r"$\Pr[T_i / T_i^{\min} \leq x]$")
     ax.set_xlim(1.0, 3.0); ax.set_ylim(0, 1.02)
@@ -158,10 +159,10 @@ def fig_deadline():
 def fig_penalty():
     pen, main = csv("C/results/pen1600.csv"), csv("A/results/main.csv")
     fam = {  # family -> (label, color, marker, linestyle)
-        "marginal": ("Marginal (proposed)", GREEN, "o", "-"),
-        "indicator": ("Violation indicator", RED, "s", "--"),
-        "shortfall": ("Normalized shortfall", GOLD, "^", "-."),
-        "lost": ("Lost RBs", DARK, "d", ":"),
+        "marginal": ("Marginal (proposed)", RED, "o", "-"),
+        "indicator": ("Violation indicator", GREEN, "s", "--"),
+        "shortfall": ("Normalized shortfall", BLUE, "^", "--"),
+        "lost": ("Lost RBs", MAGENTA, "d", "--"),
     }
     OFFS = {("marginal", 4.5): (-5, -10), ("marginal", 9.0): (5, -9), ("marginal", 2.25): (5, 2),
             ("indicator", 22.0): (-5, 6), ("indicator", 11.0): (5, 0), ("indicator", 5.5): (5, 0),
@@ -176,12 +177,12 @@ def fig_penalty():
             ax.errorbar([ref.detour.mean()], [100 * ref.p_out.mean()], xerr=[ref.detour.std(ddof=1)],
                         yerr=[100 * ref.p_out.std(ddof=1)], color=c, capsize=2, elinewidth=0.7, ls="none", zorder=4)
         d = d.sort_values("mu")
-        ax.plot(d.detour, 100 * d.p_out, color=c, ls=ls, lw=1.0, marker=m, ms=5.5, mec="white", mew=0.6,
+        ax.plot(d.detour, 100 * d.p_out, color=c, ls=ls, lw=1.2, marker=m, ms=5.5, mfc=c if f == "marginal" else "white", mec=c, mew=1.0,
                 label=lab, zorder=5 if f == "marginal" else 3)
         for _, r in d.iterrows():
             off = OFFS.get((f, float(r.mu)), (5, 0))
             ax.annotate(f"{r.mu:g}", (r.detour, 100 * r.p_out), xytext=off, textcoords="offset points",
-                        fontsize=6.5, color=DARK, ha="left" if off[0] >= 0 else "right", va="center")
+                        fontsize=6.5, color="black", ha="left" if off[0] >= 0 else "right", va="center")
     ax.set_xlabel(r"Detour factor $T_i / T_i^{\min}$")
     ax.set_ylabel(r"Outage probability $P_{\mathrm{out}}$ [%]")
     ax.set_xlim(1.085, 1.215); ax.set_ylim(0.3, 2.4)
@@ -195,7 +196,7 @@ def fig_penalty():
 # =============================================================== Fig. 7: trajectories (V-G)
 def fig_traj(seed=1001):
     files = [("greedy", f"traj_sp_{seed}.npz"), ("egat_cc", f"traj_egat_{seed}.npz")]
-    HOT = "#d62728"
+    HOT = RED
     fig = plt.figure(figsize=(COL * 2, 2.35))
     gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.25], wspace=0.06)
     ax_u = fig.add_subplot(gs[0, 2])
@@ -204,7 +205,7 @@ def fig_traj(seed=1001):
         a = fig.add_subplot(gs[0, k])
         serve, z = d["serve"], 1
         a.contour(np.arange(60), np.arange(60), serve[:, :, z].T, levels=np.arange(0.5, serve.max()),
-                  colors=[DARK], linewidths=0.6)                                   # cell boundaries
+                  colors=["#555555"], linewidths=0.5)                                   # cell boundaries
         tr, D, K = d["traj"], d["D"], float(d["K"])
         arrived, Tarr = d["arrived"], d["T_arr"]
         hot, n_over = [], 0
@@ -228,10 +229,10 @@ def fig_traj(seed=1001):
         a.text(0.03, 0.97, f"{n_over} UAV-slots\nin overload", transform=a.transAxes, ha="left", va="top",
                fontsize=6.5, color=HOT, bbox=dict(boxstyle="square,pad=0.2", fc="white", ec="none", alpha=0.9), zorder=5)
         u = D / K
-        c, ls = (DARK, ":") if name == "greedy" else (GREEN, "-")
+        c, ls = (DARK, "--") if name == "greedy" else (RED, "-")
         ax_u.plot(np.arange(len(u)), u.max(1), color=c, ls=ls, lw=1.2, label=STY[name][0])
-    ax_u.axhline(1.0, color=HOT, lw=0.7, ls="--")
-    ax_u.text(len(u) - 1, 1.02, "RB budget", fontsize=6.5, color=HOT, va="bottom", ha="right")
+    ax_u.axhline(1.0, color=BLUE, lw=0.8, ls="-.")
+    ax_u.text(len(u) - 1, 1.02, "RB budget", fontsize=6.5, color=BLUE, va="bottom", ha="right")
     ax_u.set_xlabel("Slot $t$")
     ax_u.set_ylabel(r"$\max_{b}\, D_b(t)/K_b$")
     ax_u.yaxis.set_label_position("right"); ax_u.yaxis.tick_right()
@@ -239,7 +240,7 @@ def fig_traj(seed=1001):
     ax_u.legend(loc="upper right")
     handles = [Line2D([], [], color=HOT, marker="o", ls="none", ms=3, label="UAV in an overloaded cell"),
                Line2D([], [], color="#c9c8c4", lw=0.8, label="Trajectory"),
-               Line2D([], [], color=DARK, lw=0.6, label="Cell boundary"),
+               Line2D([], [], color="#555555", lw=0.6, label="Cell boundary"),
                Line2D([], [], color="k", marker="^", ls="none", ms=5, label="GBS")]
     fig.legend(handles=handles, loc="upper center", ncol=4, bbox_to_anchor=(0.33, 0.05), frameon=False,
                fontsize=6.5, columnspacing=1.2, handletextpad=0.4)
