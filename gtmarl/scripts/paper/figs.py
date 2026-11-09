@@ -29,15 +29,15 @@ plt.rcParams.update({
     "xtick.major.width": 0.6, "ytick.major.width": 0.6,
 })
 COL = 3.5                                   # IEEE single column [in]
-RED, GREEN, BLUE, MAGENTA, ORANGE = "#ff0000", "#00b400", "#0000ff", "#ff00ff", "#ff8c00"
+RED, GREEN, BLUE, MAGENTA, GOLD = "#e00000", "#00a000", "#0a2ea8", "#ff00ff", "#c28a00"
 GRAY, DARK = "#808080", "#000000"
 STY = {  # method -> (label, color, marker, linestyle)
-    "egat_cc": ("EGAT-IPPO", RED, "o", "-"),
-    "egat_tr": ("EGAT-IPPO, trained at $N{=}50$", RED, "o", "--"),
+    "egat_cc": ("EGAT-IPPO", BLUE, "o", "-"),
+    "egat_tr": ("EGAT-IPPO, trained at $N{=}50$", BLUE, "o", "--"),
     "ippo_mlp": ("IPPO-MLP", GREEN, "s", "--"),
     "mappo": ("CTDE-MAPPO", MAGENTA, "^", "--"),
-    "greedy": ("SP", DARK, "x", "--"),
-    "myopic": ("MBR", BLUE, "d", "--"),
+    "greedy": ("SP", GOLD, "x", "--"),
+    "myopic": ("MBR", RED, "d", "--"),
 }
 
 
@@ -138,15 +138,15 @@ def fig_deadline():
     grid = np.round(np.arange(1.0, 3.01, 0.1), 1)
     fcols = [f"F@{x:.1f}" for x in grid]
     fig, ax = plt.subplots(figsize=(COL, 2.1))
-    shades = {1.2: BLUE, 1.5: RED, 2.0: GREEN, 3.0: MAGENTA}
+    shades = {1.2: "#a9bbf0", 1.5: "#6e8ae0", 2.0: "#3556c8", 3.0: BLUE}
     mk = {1.2: "v", 1.5: "o", 2.0: "s", 3.0: "D"}
     for e in (1.2, 1.5, 2.0, 3.0):
         df = ref if e == 1.5 else eta[(eta.method == "egat_cc") & (np.isclose(eta.eta_eval, e))]
         F = df[fcols].values.mean(0)
-        ax.plot(grid, F, color=shades[e], marker=mk[e], markevery=2, ms=4, mfc="white" if e != 1.5 else shades[e], label=rf"EGAT-IPPO, $\eta={e:g}$")
+        ax.plot(grid, F, color=shades[e], marker=mk[e], markevery=2, ms=4, label=rf"EGAT-IPPO, $\eta={e:g}$")
         ax.axvline(e, color=shades[e], lw=0.7, ls=":")
     sp = eta[(eta.method == "greedy")].iloc[0]
-    ax.plot(grid, sp[fcols].values.astype(float), color=DARK, ls="--", marker="x", markevery=2, ms=4, label="SP (any $\\eta$)")
+    ax.plot(grid, sp[fcols].values.astype(float), color=GOLD, ls="--", marker="x", markevery=2, ms=4, label="SP (any $\\eta$)")
     ax.set_xlabel(r"Normalized completion time $T_i / T_i^{\min}$")
     ax.set_ylabel(r"$\Pr[T_i / T_i^{\min} \leq x]$")
     ax.set_xlim(1.0, 3.0); ax.set_ylim(0, 1.02)
@@ -159,10 +159,10 @@ def fig_deadline():
 def fig_penalty():
     pen, main = csv("C/results/pen1600.csv"), csv("A/results/main.csv")
     fam = {  # family -> (label, color, marker, linestyle)
-        "marginal": ("Marginal (proposed)", RED, "o", "-"),
+        "marginal": ("Marginal (proposed)", BLUE, "o", "-"),
         "indicator": ("Violation indicator", GREEN, "s", "--"),
-        "shortfall": ("Normalized shortfall", BLUE, "^", "--"),
-        "lost": ("Lost RBs", MAGENTA, "d", "--"),
+        "shortfall": ("Normalized shortfall", RED, "^", "--"),
+        "lost": ("Lost RBs", GOLD, "d", "--"),
     }
     OFFS = {("marginal", 4.5): (-5, -10), ("marginal", 9.0): (5, -9), ("marginal", 2.25): (5, 2),
             ("indicator", 22.0): (-5, 6), ("indicator", 11.0): (5, 0), ("indicator", 5.5): (5, 0),
@@ -196,7 +196,7 @@ def fig_penalty():
 # =============================================================== Fig. 7: trajectories (V-G)
 def fig_traj(seed=1001):
     files = [("greedy", f"traj_sp_{seed}.npz"), ("egat_cc", f"traj_egat_{seed}.npz")]
-    HOT = RED
+    HOT = "#e00000"
     fig = plt.figure(figsize=(COL * 2, 2.35))
     gs = fig.add_gridspec(1, 3, width_ratios=[1, 1, 1.25], wspace=0.06)
     ax_u = fig.add_subplot(gs[0, 2])
@@ -226,13 +226,11 @@ def fig_traj(seed=1001):
         for sp_ in a.spines.values():
             sp_.set_color(GRAY)
         a.set_title(f"({'ab'[k]}) {STY[name][0]}", fontsize=8, pad=2)
-        a.text(0.03, 0.97, f"{n_over} UAV-slots\nin overload", transform=a.transAxes, ha="left", va="top",
-               fontsize=6.5, color=HOT, bbox=dict(boxstyle="square,pad=0.2", fc="white", ec="none", alpha=0.9), zorder=5)
         u = D / K
-        c, ls = (DARK, "--") if name == "greedy" else (RED, "-")
+        c, ls = (GOLD, "--") if name == "greedy" else (BLUE, "-")
         ax_u.plot(np.arange(len(u)), u.max(1), color=c, ls=ls, lw=1.2, label=STY[name][0])
-    ax_u.axhline(1.0, color=BLUE, lw=0.8, ls="-.")
-    ax_u.text(len(u) - 1, 1.02, "RB budget", fontsize=6.5, color=BLUE, va="bottom", ha="right")
+    ax_u.axhline(1.0, color=HOT, lw=1.0, ls="--", zorder=1.5)
+    ax_u.text(len(u) - 1, 1.02, "RB budget", fontsize=6.5, color=HOT, va="bottom", ha="right")
     ax_u.set_xlabel("Slot $t$")
     ax_u.set_ylabel(r"$\max_{b}\, D_b(t)/K_b$")
     ax_u.yaxis.set_label_position("right"); ax_u.yaxis.tick_right()
