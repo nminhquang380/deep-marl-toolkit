@@ -95,9 +95,11 @@ def scal_data():
     out = {}
     def agg(df, N):
         return df[df.N == N]
+    e24p = os.path.join(RES, "A/results/egat2400.csv")
+    src = pd.read_csv(e24p) if os.path.exists(e24p) else main[main.method == "egat_cc"]
     egat = {30: n30[n30.method == "egat_cc"], 40: scal[(scal.method == "egat_cc") & (scal.N == 40)],
-            50: main[(main.method == "egat_cc") & (main.N == 50)], 60: s24[s24.method == "egat_cc"]}
-    egat_tr = {N: main[(main.method == "egat_cc") & (main.N == N)] for N in (30, 40, 50, 60)}
+            50: src[src.N == 50], 60: s24[s24.method == "egat_cc"]}
+    egat_tr = {N: src[src.N == N] for N in (30, 40, 50, 60)}
     ippo = {40: scal[(scal.method == "ippo_mlp") & (scal.N == 40)], 50: ip24, 60: s24[s24.method == "ippo_mlp"]}
     sp = {N: main[(main.method == "greedy") & (main.N == N)] for N in (30, 40, 50, 60)}
     mbr = {N: main[(main.method == "myopic") & (main.N == N)] for N in (30, 40, 50, 60)}
